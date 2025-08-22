@@ -1,0 +1,4774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Progressive Web DJ App</title>
+    <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
+    <script src="https://unpkg.com/aubiojs@0.1.1/build/aubio.js"></script>
+    <script src="https://unpkg.com/ml-matrix@6.10.4/lib-es6/index.js"></script>
+    <script src="https://unpkg.com/chroma-js@2.4.2/chroma.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            color: white;
+            min-height: 100vh;
+            overflow-x: auto;
+            margin: 0;
+            padding: 0;
+        }
+
+        .dj-app {
+            display: grid;
+            grid-template-columns: 1fr 280px 1fr;
+            grid-template-rows: 1fr;
+            gap: 1vw;
+            padding: 1vw;
+            min-height: 100vh;
+            width: 100vw;
+            max-width: 100vw;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .deck {
+            background: linear-gradient(145deg, #2a2a3e, #1e1e32);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            transition: all 0.3s ease;
+            min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .deck.active {
+            background: linear-gradient(145deg, #8B0000, #660000);
+            box-shadow: 0 10px 30px rgba(139,0,0,0.5);
+        }
+
+        .deck.active .vinyl {
+            border-color: #FF4500;
+            box-shadow: inset 0 0 20px rgba(255,69,0,0.8), 0 0 30px rgba(255,69,0,0.3);
+        }
+
+        .deck.active .deck-label {
+            color: #FF4500;
+        }
+
+        .vinyl {
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle, #1a1a1a 30%, #333 31%, #333 40%, #1a1a1a 41%);
+            border-radius: 50%;
+            position: relative;
+            cursor: grab;
+            transition: transform 0.1s ease;
+            border: 3px solid #444;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        .vinyl:active {
+            cursor: grabbing;
+        }
+
+        .vinyl.spinning {
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .vinyl-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            background: #666;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .vinyl-radius {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 80px;
+            background: #ff0000;
+            transform-origin: 50% 0%;
+            transform: translate(-50%, 0%) rotate(0deg);
+            border-radius: 1px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .vinyl-radius.visible {
+            opacity: 1;
+        }
+
+        .vinyl-radius.rotating {
+            animation: radiusRotate linear infinite;
+        }
+
+        @keyframes radiusRotate {
+            from { transform: translate(-50%, 0%) rotate(0deg); }
+            to { transform: translate(-50%, 0%) rotate(360deg); }
+        }
+
+        .waveform {
+            width: 100%;
+            max-width: 100%;
+            height: 60px;
+            background: #1a1a2e;
+            border-radius: 10px;
+            margin: 10px 0;
+            position: relative;
+            overflow: hidden;
+            border: 2px solid #333;
+            cursor: pointer;
+            box-sizing: border-box;
+        }
+
+        .waveform-bars {
+            display: flex;
+            height: 100%;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1px;
+            padding: 5px;
+            width: 100%;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .waveform-bar {
+            flex: 1;
+            min-width: 1px;
+            max-width: 3px;
+            background: #00ff88;
+            border-radius: 1px;
+            opacity: 0.7;
+            transition: background-color 0.1s ease;
+        }
+
+        .waveform-bar.played {
+            background: #ff6b6b;
+            opacity: 1;
+        }
+
+        .playback-indicator {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 2px;
+            height: 100%;
+            background: #ff0000;
+            z-index: 10;
+            cursor: grab;
+            box-shadow: 0 0 8px rgba(255, 0, 0, 0.8);
+            transition: left 0.1s ease;
+        }
+
+        .playback-indicator:active {
+            cursor: grabbing;
+        }
+
+        .playback-indicator::before {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: -3px;
+            width: 8px;
+            height: 8px;
+            background: #ff0000;
+            border-radius: 50%;
+            box-shadow: 0 0 6px rgba(255, 0, 0, 0.8);
+        }
+
+        .audio-analysis {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 10px 0;
+            gap: 15px;
+            box-sizing: border-box;
+        }
+
+        .analysis-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            flex: 1;
+        }
+
+        .analysis-label {
+            font-size: 9px;
+            font-weight: bold;
+            color: #00ff88;
+            letter-spacing: 0.5px;
+        }
+
+        .analysis-value {
+            font-size: 11px;
+            font-weight: bold;
+            color: #fff;
+            background: rgba(0, 255, 136, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid #00ff88;
+            min-width: 40px;
+            text-align: center;
+        }
+
+        .deck-controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .tempo-section {
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .tempo-label {
+            text-align: center;
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #00ff88;
+        }
+
+        .tempo-slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #1a1a2e, #2a2a3e);
+            outline: none;
+            -webkit-appearance: none;
+            box-shadow: inset 3px 3px 6px rgba(0,0,0,0.4), inset -3px -3px 6px rgba(255,255,255,0.05);
+        }
+
+        .tempo-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+            cursor: pointer;
+            box-shadow: 4px 4px 8px rgba(0,0,0,0.3), -4px -4px 8px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.3);
+            transition: all 0.2s ease;
+        }
+
+        .tempo-slider::-webkit-slider-thumb:hover {
+            box-shadow: 6px 6px 12px rgba(0,0,0,0.4), -6px -6px 12px rgba(255,255,255,0.15), inset 0 1px 0 rgba(255,255,255,0.4);
+            transform: scale(1.1);
+        }
+
+        .tempo-slider::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+            cursor: pointer;
+            border: none;
+            box-shadow: 4px 4px 8px rgba(0,0,0,0.3), -4px -4px 8px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.3);
+        }
+
+        .eq-section {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .eq-knob-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .eq-knob {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #4a4a6e, #2a2a4e);
+            border: none;
+            position: relative;
+            cursor: pointer;
+            box-shadow: 8px 8px 16px rgba(0,0,0,0.4), -8px -8px 16px rgba(255,255,255,0.05), inset 2px 2px 4px rgba(0,0,0,0.3), inset -2px -2px 4px rgba(255,255,255,0.1);
+            transition: all 0.2s ease;
+        }
+
+        .eq-knob:hover {
+            box-shadow: 10px 10px 20px rgba(0,0,0,0.5), -10px -10px 20px rgba(255,255,255,0.08), inset 2px 2px 4px rgba(0,0,0,0.4), inset -2px -2px 4px rgba(255,255,255,0.15);
+        }
+
+        .eq-knob:active {
+            box-shadow: 4px 4px 8px rgba(0,0,0,0.3), -4px -4px 8px rgba(255,255,255,0.03), inset 4px 4px 8px rgba(0,0,0,0.5), inset -4px -4px 8px rgba(255,255,255,0.2);
+        }
+
+        .eq-knob::after {
+            content: '';
+            position: absolute;
+            top: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 3px;
+            height: 15px;
+            background: #00ff88;
+            border-radius: 2px;
+            transform-origin: 50% 20px;
+        }
+
+        .eq-label {
+            font-size: 10px;
+            color: #00ff88;
+            font-weight: bold;
+        }
+
+        .eq-value {
+            font-size: 8px;
+            color: #fff;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 2px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 4px;
+            border-radius: 3px;
+            border: 1px solid #333;
+        }
+
+        .control-btn {
+            padding: 12px;
+            border: none;
+            border-radius: 15px;
+            background: linear-gradient(145deg, #3a3a5e, #2a2a4e);
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            box-shadow: 8px 8px 16px rgba(0,0,0,0.4), -8px -8px 16px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .control-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 10px 10px 20px rgba(0,0,0,0.5), -10px -10px 20px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.15);
+        }
+
+        .control-btn:active {
+            transform: translateY(1px);
+            box-shadow: inset 4px 4px 8px rgba(0,0,0,0.3), inset -4px -4px 8px rgba(255,255,255,0.05);
+        }
+
+        .control-btn.active {
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+            color: #1a1a2e;
+            box-shadow: 8px 8px 16px rgba(0,255,136,0.2), -8px -8px 16px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.3);
+        }
+
+        .play-pause-btn.loaded {
+            animation: playButtonBlink 1s ease-in-out infinite alternate;
+        }
+
+        @keyframes playButtonBlink {
+            0% { 
+                background: linear-gradient(145deg, #3a3a5e, #2a2a4e);
+                box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            }
+            100% { 
+                background: linear-gradient(145deg, #00ff88, #00cc66);
+                box-shadow: 0 4px 15px rgba(0,255,136,0.5);
+                color: #1a1a2e;
+            }
+        }
+
+        .deck.paused {
+            animation: deckBlink 0.5s ease-in-out infinite alternate;
+        }
+
+        @keyframes deckBlink {
+            0% { 
+                background: linear-gradient(145deg, #2a2a3e, #1e1e32);
+            }
+            100% { 
+                background: linear-gradient(145deg, #4a4a6e, #3e3e52);
+            }
+        }
+
+        .master-deck {
+            background: linear-gradient(145deg, #FFD700, #B8860B);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 15px;
+            width: 280px;
+            max-width: 280px;
+            min-width: 280px;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .dj-logo {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .dj-logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(0,255,136,0.3);
+        }
+
+        .dj-logo-text {
+            font-size: 14px;
+            font-weight: bold;
+            color: #1a1a2e;
+            text-shadow: 0 2px 4px rgba(255,255,255,0.3);
+            letter-spacing: 1px;
+        }
+
+        .master-label {
+            font-size: 16px;
+            font-weight: bold;
+            color: #1a1a2e;
+            text-align: center;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.3);
+        }
+
+        .crossfader-section {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .crossfader-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .crossfader-fader {
+            width: 200px;
+            height: 30px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .crossfader-track {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+            width: 100%;
+            height: 8px;
+            background: linear-gradient(90deg, #FF4500 0%, #333 50%, #00ff88 100%);
+            border-radius: 4px;
+            box-shadow: inset 0 0 4px rgba(0,0,0,0.6);
+        }
+
+        .crossfader-handle {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 50px;
+            height: 20px;
+            background: linear-gradient(145deg, #f0f0f0, #c0c0c0);
+            border: 2px solid #999;
+            border-radius: 4px;
+            cursor: grab;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            transition: box-shadow 0.2s ease;
+            position: relative;
+        }
+
+        .crossfader-handle::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 2px;
+            transform: translateY(-50%);
+            width: 46px;
+            height: 3px;
+            background: linear-gradient(90deg, #FF4500, #CC3700);
+            border-radius: 2px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 0 2px rgba(255,69,0,0.5);
+        }
+
+        .crossfader-handle:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+        }
+
+        .crossfader-handle:active {
+            cursor: grabbing;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.8);
+        }
+
+        .crossfader-label {
+            font-size: 10px;
+            color: #1a1a2e;
+            font-weight: bold;
+            text-align: center;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.3);
+        }
+
+        .deck-gain-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin: 15px 0;
+            width: 100%;
+        }
+
+        .deck-gain-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            height: 100px;
+        }
+
+        .deck-gain-label {
+            font-size: 10px;
+            color: #00ff88;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .deck-gain-fader-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .deck-gain-fader {
+            width: 25px;
+            height: 80px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .deck-gain-value {
+            font-size: 8px;
+            color: #fff;
+            font-weight: bold;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 4px;
+            border-radius: 3px;
+            border: 1px solid #333;
+            min-width: 30px;
+        }
+
+        .master-gain-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            margin: 30px 0;
+            padding: 0 10px;
+        }
+
+        .master-gain-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            height: 120px;
+        }
+
+        .master-gain-label-left, .master-gain-label-right {
+            font-size: 10px;
+            color: #1a1a2e;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .master-gain-fader-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .master-gain-fader {
+            width: 30px;
+            height: 100px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .fader-track {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, #ff6b6b 0%, #00ff88 50%, #333 100%);
+            border-radius: 2px;
+            box-shadow: inset 0 0 3px rgba(0,0,0,0.5);
+        }
+
+        .fader-handle {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 56px;
+            height: 18px;
+            background: linear-gradient(145deg, #f0f0f0, #c0c0c0);
+            border: none;
+            border-radius: 8px;
+            cursor: grab;
+            box-shadow: 4px 4px 8px rgba(0,0,0,0.3), -4px -4px 8px rgba(255,255,255,0.8), inset 1px 1px 2px rgba(255,255,255,0.9), inset -1px -1px 2px rgba(0,0,0,0.2);
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .fader-handle::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 2px;
+            transform: translateY(-50%);
+            width: 52px;
+            height: 3px;
+            background: linear-gradient(90deg, #FF4500, #CC3700);
+            border-radius: 2px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 0 2px rgba(255,69,0,0.5);
+        }
+
+        .fader-handle:hover {
+            box-shadow: 6px 6px 12px rgba(0,0,0,0.4), -6px -6px 12px rgba(255,255,255,0.9), inset 1px 1px 2px rgba(255,255,255,1), inset -1px -1px 2px rgba(0,0,0,0.3);
+            transform: translateX(-50%) scale(1.05);
+        }
+
+        .fader-handle:active {
+            cursor: grabbing;
+            box-shadow: inset 2px 2px 4px rgba(0,0,0,0.3), inset -2px -2px 4px rgba(255,255,255,0.8);
+            transform: translateX(-50%) scale(0.98);
+        }
+
+        .master-gain-value {
+            font-size: 8px;
+            color: #1a1a2e;
+            font-weight: bold;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 2px 4px;
+            border-radius: 3px;
+            border: 1px solid #B8860B;
+            min-width: 30px;
+        }
+
+        .match-controls-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .match-buttons-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .match-btn {
+            background: linear-gradient(145deg, #4ecdc4, #45b7aa);
+            border: 2px solid #1a1a2e;
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: #1a1a2e;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 8px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            width: 80px;
+            height: 40px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .match-btn:hover {
+            background: linear-gradient(145deg, #5eddd4, #55c7ba);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        .match-btn.active {
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+            color: #1a1a2e;
+            box-shadow: 0 0 15px rgba(0,255,136,0.5);
+        }
+
+        .settings-btn {
+            background: linear-gradient(145deg, #B8860B, #8B6914);
+            border: 2px solid #1a1a2e;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            color: #1a1a2e;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .settings-btn:hover {
+            background: linear-gradient(145deg, #FFD700, #DAA520);
+            color: #1a1a2e;
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        .soundpads-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .soundpads-label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #1a1a2e;
+            text-align: center;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.3);
+        }
+
+        .soundpads-container {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .soundpads-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: repeat(5, 1fr);
+            gap: 10px;
+            width: 100%;
+            max-width: 150px;
+        }
+
+        .deck-gain-left, .deck-gain-right {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .deck-a-fader .fader-track {
+            background: linear-gradient(180deg, #ff6b6b 0%, #FF4500 50%, #cc3700 100%);
+        }
+
+        .deck-b-fader .fader-track {
+            background: linear-gradient(180deg, #ff6b6b 0%, #4A90E2 50%, #357ABD 100%);
+        }
+
+        .soundpad {
+            background: linear-gradient(145deg, #3a3a5e, #2a2a4e);
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 56px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            user-select: none;
+            position: relative;
+        }
+
+        .soundpad span {
+            font-size: 8px;
+            font-weight: bold;
+            color: white;
+            text-align: center;
+            line-height: 1;
+        }
+
+        .soundpad:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            border-color: #00ff88;
+        }
+
+        .soundpad:active {
+            transform: scale(0.95);
+        }
+
+        .soundpad.active {
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+            border-color: #00ff88;
+            box-shadow: 0 0 15px rgba(0,255,136,0.5);
+            animation: effectGlow 2s ease-in-out infinite alternate;
+        }
+
+        .soundpad.active span {
+            color: #1a1a2e;
+        }
+
+        @keyframes effectGlow {
+            0% { box-shadow: 0 0 15px rgba(0,255,136,0.5); }
+            100% { box-shadow: 0 0 25px rgba(0,255,136,0.8); }
+        }
+
+        .soundpad.empty {
+            background: linear-gradient(145deg, #1a1a2e, #0f0f1a);
+            border: 2px dashed #444;
+            color: #666;
+        }
+
+        .soundpad.empty:hover {
+            border-color: #666;
+            transform: none;
+        }
+
+        .soundpad.loaded {
+            background: linear-gradient(145deg, #4A90E2, #357ABD);
+            border-color: #4A90E2;
+        }
+
+        .soundpad.loaded:hover {
+            background: linear-gradient(145deg, #5BA0F2, #4680CD);
+            transform: translateY(-1px);
+        }
+
+        .soundpad.selected {
+            border-color: #ff6b6b;
+            box-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
+        }
+
+        .soundpad-controls {
+            display: none;
+            gap: 5px;
+            margin-top: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .soundpad-controls.show {
+            display: flex;
+        }
+
+        .load-sounds-btn, .stop-sounds-btn, .change-sounds-btn {
+            background: linear-gradient(145deg, #ff6b6b, #ee5a52);
+            border: none;
+            border-radius: 6px;
+            padding: 6px 8px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 9px;
+            transition: all 0.2s ease;
+            min-width: 45px;
+        }
+
+        .stop-sounds-btn {
+            background: linear-gradient(145deg, #666, #555);
+        }
+
+        .change-sounds-btn {
+            background: linear-gradient(145deg, #4ecdc4, #45b7aa);
+        }
+
+        .load-sounds-btn:hover, .stop-sounds-btn:hover, .change-sounds-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        .soundpad-menu {
+            position: fixed;
+            background: linear-gradient(145deg, #2a2a3e, #1e1e32);
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 8px;
+            z-index: 1000;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        .soundpad-menu button {
+            display: block;
+            width: 100%;
+            padding: 8px 12px;
+            margin: 2px 0;
+            background: linear-gradient(145deg, #3a3a5e, #2a2a4e);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+
+        .soundpad-menu button:hover {
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+            color: #1a1a2e;
+        }
+
+        .deck-label {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff88;
+            margin-bottom: 10px;
+        }
+
+        .track-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #fff;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            min-height: 20px;
+            border: 1px solid #333;
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .drop-zone {
+            border: 2px dashed #666;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            color: #999;
+            transition: all 0.3s ease;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.1);
+            color: #00ff88;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: linear-gradient(145deg, #2a2a3e, #1e1e32);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+            border: 2px solid #333;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 15px;
+        }
+
+        .modal-header h3 {
+            color: #00ff88;
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #ff6b6b;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 107, 107, 0.2);
+            transform: scale(1.1);
+        }
+
+        .modal-body {
+            color: white;
+        }
+
+        .setting-group {
+            margin-bottom: 20px;
+        }
+
+        .setting-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #00ff88;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .setting-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #333;
+            border-radius: 8px;
+            background: #1a1a2e;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .setting-group select:focus {
+            outline: none;
+            border-color: #00ff88;
+        }
+
+        .setting-info {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid #00ff88;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .setting-info p {
+            margin: 0;
+            font-size: 12px;
+            color: #ccc;
+            line-height: 1.4;
+        }
+
+        /* Floating Playlist Styles */
+        .floating-playlist {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            max-height: 400px;
+            min-width: 280px;
+            min-height: 200px;
+            background: linear-gradient(145deg, #2a2a3e, #1e1e32);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            border: 2px solid #333;
+            z-index: 500;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            resize: both;
+        }
+
+        .floating-playlist-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: linear-gradient(145deg, #3a3a5e, #2a2a4e);
+            border-bottom: 2px solid #333;
+            cursor: move;
+            user-select: none;
+        }
+
+        .floating-playlist-title {
+            color: #00ff88;
+            font-weight: bold;
+            font-size: 16px;
+            margin: 0;
+        }
+
+        .playlist-toggle-btn {
+            background: none;
+            border: none;
+            color: #00ff88;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .playlist-toggle-btn:hover {
+            background: rgba(0, 255, 136, 0.2);
+            transform: scale(1.1);
+        }
+
+        .playlist-toggle-btn.collapse-btn {
+            background: linear-gradient(145deg, #FFD700, #B8860B);
+            color: #1a1a2e;
+            border-radius: 6px;
+            padding: 5px 10px;
+            font-size: 10px;
+            font-weight: bold;
+            box-shadow: 0 2px 6px rgba(255,215,0,0.3);
+        }
+
+        .playlist-toggle-btn.collapse-btn:hover {
+            background: linear-gradient(145deg, #FFED4E, #DAA520);
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(255,215,0,0.4);
+        }
+
+        .floating-playlist-controls {
+            display: flex;
+            gap: 10px;
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid #333;
+        }
+
+        .upload-btn, .autoplay-btn, .clear-btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 6px;
+            background: linear-gradient(145deg, #ff6b6b, #ee5a52);
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 11px;
+            transition: all 0.2s ease;
+        }
+
+        .autoplay-btn {
+            background: linear-gradient(145deg, #4ecdc4, #45b7aa);
+        }
+
+        .autoplay-btn.active {
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+        }
+
+        .clear-btn {
+            background: linear-gradient(145deg, #FFD700, #B8860B);
+            color: #1a1a2e;
+            margin-left: auto;
+        }
+
+        .upload-btn:hover, .autoplay-btn:hover, .clear-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        .clear-btn:hover {
+            background: linear-gradient(145deg, #FFED4E, #DAA520);
+        }
+
+        .floating-playlist-content {
+            flex: 1;
+            overflow-y: auto;
+            background: #1a1a2e;
+        }
+
+        .floating-playlist-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .floating-playlist-content::-webkit-scrollbar-track {
+            background: #1a1a2e;
+        }
+
+        .floating-playlist-content::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 3px;
+        }
+
+        .floating-playlist-content::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        .playlist-item {
+            padding: 10px 15px;
+            border-bottom: 1px solid #333;
+            cursor: grab;
+            transition: background 0.2s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .playlist-item:hover {
+            background: #2a2a3e;
+        }
+
+        .playlist-item:active {
+            cursor: grabbing;
+        }
+
+        .playlist-item.playing {
+            background: linear-gradient(90deg, #00ff88, #00cc66);
+            color: #1a1a2e;
+        }
+
+        .playlist-item.currently-playing {
+            background: linear-gradient(90deg, #ff6b6b, #ee5a52);
+            color: white;
+            animation: currentlyPlayingPulse 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes currentlyPlayingPulse {
+            0% { box-shadow: 0 0 10px rgba(255, 107, 107, 0.5); }
+            100% { box-shadow: 0 0 20px rgba(255, 107, 107, 0.8); }
+        }
+
+        .load-buttons {
+            display: none;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .load-buttons.show {
+            display: flex;
+        }
+
+        .load-btn {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            background: linear-gradient(145deg, #4ecdc4, #45b7aa);
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 9px;
+            transition: all 0.2s ease;
+        }
+
+        .load-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .load-btn.deck-a {
+            background: linear-gradient(145deg, #FF4500, #cc3700);
+        }
+
+        .load-btn.deck-b {
+            background: linear-gradient(145deg, #4A90E2, #357ABD);
+        }
+
+        .playlist-item.dragging {
+            opacity: 0.5;
+            transform: rotate(2deg);
+        }
+
+        .playlist-item.drag-over {
+            border-top: 3px solid #00ff88;
+            margin-top: 3px;
+        }
+
+        .floating-playlist.minimized .floating-playlist-content,
+        .floating-playlist.minimized .floating-playlist-controls {
+            display: none;
+        }
+
+        .floating-playlist.minimized {
+            max-height: 60px;
+        }
+
+        .floating-playlist.collapsed {
+            display: none;
+        }
+
+        .playlist-collapsed-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(145deg, #2a2a3e, #1e1e32);
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 12px 20px;
+            color: #00ff88;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 500;
+        }
+
+        .playlist-collapsed-btn:hover {
+            background: linear-gradient(145deg, #3a3a5e, #2a2a4e);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+        }
+
+        .expand-playlist-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(145deg, #FFD700, #B8860B);
+            border: 2px solid #1a1a2e;
+            border-radius: 8px;
+            padding: 12px 20px;
+            color: #1a1a2e;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 500;
+        }
+
+        .expand-playlist-btn:hover {
+            background: linear-gradient(145deg, #FFED4E, #DAA520);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255,215,0,0.4);
+        }
+
+        /* Resize handles */
+        .floating-playlist::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            background: linear-gradient(135deg, transparent 50%, #00ff88 50%);
+            cursor: nw-resize;
+            z-index: 10;
+            border-bottom-right-radius: 13px;
+        }
+
+        .floating-playlist::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 15px;
+            height: 15px;
+            cursor: ne-resize;
+            z-index: 10;
+            border-top-right-radius: 13px;
+        }
+
+        .resize-handle-left {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 5px;
+            height: 30px;
+            cursor: ew-resize;
+            z-index: 10;
+        }
+
+        .resize-handle-top {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 30px;
+            height: 5px;
+            cursor: ns-resize;
+            z-index: 10;
+        }
+
+        .resize-handle-bottom {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 30px;
+            height: 5px;
+            cursor: ns-resize;
+            z-index: 10;
+        }
+
+        .resize-handle-right {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 5px;
+            height: 30px;
+            cursor: ew-resize;
+            z-index: 10;
+        }
+
+        .resize-handle-tl {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 15px;
+            height: 15px;
+            cursor: nw-resize;
+            z-index: 10;
+            border-top-left-radius: 13px;
+        }
+
+        .resize-handle-bl {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 15px;
+            height: 15px;
+            cursor: sw-resize;
+            z-index: 10;
+            border-bottom-left-radius: 13px;
+        }
+
+        @media (max-width: 1200px) {
+            .dj-app {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto;
+                gap: 10px;
+                padding: 10px;
+            }
+            
+            .master-deck {
+                grid-column: 1;
+                order: 2;
+                padding: 15px;
+            }
+
+            .deck {
+                padding: 20px;
+            }
+
+            .vinyl {
+                width: 150px;
+                height: 150px;
+            }
+
+            .eq-section {
+                gap: 15px;
+            }
+
+            .eq-knob {
+                width: 40px;
+                height: 40px;
+            }
+
+            .floating-playlist {
+                position: relative;
+                top: auto;
+                right: auto;
+                width: 100%;
+                max-height: 300px;
+                margin: 10px 0;
+                order: 3;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .dj-app {
+                padding: 8px;
+                gap: 8px;
+            }
+
+            .deck {
+                padding: 15px;
+            }
+
+            .vinyl {
+                width: 120px;
+                height: 120px;
+            }
+
+            .deck-controls {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+            }
+
+            .control-btn {
+                padding: 8px;
+                font-size: 12px;
+            }
+
+            .eq-section {
+                gap: 10px;
+            }
+
+            .eq-knob {
+                width: 35px;
+                height: 35px;
+            }
+
+            .master-deck {
+                padding: 12px;
+            }
+
+            .soundpads-grid {
+                max-width: 100px;
+            }
+
+            .soundpad {
+                min-height: 40px;
+                padding: 6px;
+            }
+
+            .floating-playlist {
+                width: 100%;
+                max-height: 250px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .dj-app {
+                padding: 5px;
+                gap: 5px;
+            }
+
+            .deck {
+                padding: 10px;
+            }
+
+            .vinyl {
+                width: 100px;
+                height: 100px;
+            }
+
+            .deck-label {
+                font-size: 18px;
+            }
+
+            .track-title {
+                font-size: 12px;
+                padding: 6px 8px;
+            }
+
+            .waveform {
+                height: 50px;
+            }
+
+            .eq-knob {
+                width: 30px;
+                height: 30px;
+            }
+
+            .eq-label {
+                font-size: 9px;
+            }
+
+            .eq-value {
+                font-size: 7px;
+            }
+
+            .soundpads-grid {
+                max-width: 80px;
+            }
+
+            .soundpad {
+                min-height: 35px;
+                padding: 4px;
+            }
+
+            .soundpad span {
+                font-size: 7px;
+            }
+
+            .floating-playlist {
+                width: 100%;
+                max-height: 200px;
+            }
+
+            .floating-playlist-header {
+                padding: 10px 15px;
+            }
+
+            .floating-playlist-title {
+                font-size: 14px;
+            }
+        }
+
+        /* Footer Styles */
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(145deg, #1a1a2e, #0f0f1a);
+            border-top: 2px solid #333;
+            padding: 8px 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            z-index: 100;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
+        }
+
+        .footer-text {
+            margin: 0;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .footer-text .contact-link {
+            cursor: pointer;
+            color: #00ff88;
+            text-decoration: underline;
+            transition: color 0.2s ease;
+        }
+
+        .footer-text .contact-link:hover {
+            color: #FFD700;
+        }
+
+        /* Contact Modal Styles */
+        .contact-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            backdrop-filter: blur(10px);
+        }
+
+        .contact-modal-content {
+            background: rgba(42, 42, 62, 0.95);
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(0, 255, 136, 0.3);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.1);
+            position: relative;
+        }
+
+        .contact-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            border-bottom: 2px solid rgba(0, 255, 136, 0.3);
+            padding-bottom: 15px;
+        }
+
+        .contact-modal-header h3 {
+            color: #00ff88;
+            margin: 0;
+            font-size: 20px;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+
+        .contact-form-group {
+            margin-bottom: 20px;
+        }
+
+        .contact-form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #00ff88;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .contact-form-group input,
+        .contact-form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid rgba(51, 51, 51, 0.8);
+            border-radius: 10px;
+            background: rgba(26, 26, 46, 0.8);
+            color: white;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        .contact-form-group input:focus,
+        .contact-form-group textarea:focus {
+            outline: none;
+            border-color: #00ff88;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.3), inset 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        .contact-form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+            max-height: 200px;
+        }
+
+        .char-counter {
+            text-align: right;
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .captcha-section {
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(0, 255, 136, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .captcha-question {
+            color: #00ff88;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .captcha-input {
+            width: 100px;
+            padding: 8px;
+            border: 2px solid #333;
+            border-radius: 8px;
+            background: rgba(26, 26, 46, 0.8);
+            color: white;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .captcha-input:focus {
+            outline: none;
+            border-color: #00ff88;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+
+        .contact-send-btn {
+            background: linear-gradient(145deg, #00ff88, #00cc66);
+            border: none;
+            border-radius: 12px;
+            padding: 15px 30px;
+            color: #1a1a2e;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(0, 255, 136, 0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+            width: 100%;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .contact-send-btn:hover {
+            background: linear-gradient(145deg, #00cc66, #00aa55);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 255, 136, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+        }
+
+        .contact-send-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+        }
+
+        .contact-send-btn.show {
+            display: block;
+            animation: slideInUp 0.5s ease;
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .form-validation-message {
+            color: #ff6b6b;
+            font-size: 12px;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .form-validation-message.show {
+            display: block;
+        }
+
+        /* User Manual Button */
+        .manual-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: linear-gradient(145deg, #f0f0f0, #c0c0c0);
+            border: 2px solid #999;
+            border-radius: 12px;
+            padding: 12px 20px;
+            color: #1a1a2e;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            box-shadow: 4px 4px 8px rgba(0,0,0,0.3), -4px -4px 8px rgba(255,255,255,0.8), inset 1px 1px 2px rgba(255,255,255,0.9), inset -1px -1px 2px rgba(0,0,0,0.2);
+            z-index: 500;
+        }
+
+        .manual-btn:hover {
+            box-shadow: 6px 6px 12px rgba(0,0,0,0.4), -6px -6px 12px rgba(255,255,255,0.9), inset 1px 1px 2px rgba(255,255,255,1), inset -1px -1px 2px rgba(0,0,0,0.3);
+            transform: scale(1.05);
+        }
+
+        .manual-btn:active {
+            box-shadow: inset 2px 2px 4px rgba(0,0,0,0.3), inset -2px -2px 4px rgba(255,255,255,0.8);
+            transform: scale(0.98);
+        }
+
+        /* User Manual Modal */
+        .manual-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            backdrop-filter: blur(10px);
+        }
+
+        .manual-modal-content {
+            background: linear-gradient(145deg, #2a2a3e, #1e1e32);
+            border: 2px solid #00ff88;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 90%;
+            max-height: 90%;
+            width: 800px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.1);
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .manual-modal-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .manual-modal-content::-webkit-scrollbar-track {
+            background: #1a1a2e;
+            border-radius: 4px;
+        }
+
+        .manual-modal-content::-webkit-scrollbar-thumb {
+            background: #00ff88;
+            border-radius: 4px;
+        }
+
+        .manual-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #00ff88;
+            padding-bottom: 15px;
+        }
+
+        .manual-header h2 {
+            color: #00ff88;
+            margin: 0;
+            font-size: 24px;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+
+        .manual-section {
+            margin-bottom: 30px;
+        }
+
+        .manual-section h3 {
+            color: #FFD700;
+            font-size: 18px;
+            margin-bottom: 15px;
+            border-left: 4px solid #FFD700;
+            padding-left: 15px;
+        }
+
+        .manual-section p {
+            color: #ccc;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .manual-section ul {
+            color: #ccc;
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+
+        .manual-section li {
+            margin-bottom: 8px;
+        }
+
+        .ui-diagram {
+            background: rgba(0, 0, 0, 0.3);
+            border: 2px solid #333;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .ui-element {
+            display: inline-block;
+            background: linear-gradient(145deg, #3a3a5e, #2a2a4e);
+            border: 2px solid #00ff88;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 5px;
+            color: #00ff88;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .ui-element.deck-a {
+            border-color: #FF4500;
+            color: #FF4500;
+        }
+
+        .ui-element.deck-b {
+            border-color: #4A90E2;
+            color: #4A90E2;
+        }
+
+        .ui-element.master {
+            background: linear-gradient(145deg, #FFD700, #B8860B);
+            border-color: #1a1a2e;
+            color: #1a1a2e;
+        }
+
+        .manual-footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #333;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="dj-app">
+        <!-- Deck A -->
+        <div class="deck" id="deckA">
+            <div class="deck-label">DECK A</div>
+            <div class="track-title" id="trackTitleA">No Track Loaded</div>
+            <div class="vinyl" id="vinylA" ondrop="dropOnDeck(event, 'A')" ondragover="allowDrop(event)">
+                <div class="vinyl-radius" id="radiusA"></div>
+                <div class="vinyl-center">A</div>
+            </div>
+            <div class="waveform" id="waveformA" onclick="seekToPosition(event, 'A')">
+                <div class="drop-zone" id="dropZoneA"></div>
+                <div class="playback-indicator" id="indicatorA" style="display: none;" 
+                     onmousedown="startIndicatorDrag(event, 'A')"></div>
+            </div>
+            <div class="audio-analysis" id="analysisA">
+                <div class="analysis-item">
+                    <span class="analysis-label">VOLUME:</span>
+                    <span class="analysis-value" id="volumeA">--</span>
+                </div>
+                <div class="analysis-item">
+                    <span class="analysis-label">BPM:</span>
+                    <span class="analysis-value" id="bpmA">--</span>
+                </div>
+                <div class="analysis-item">
+                    <span class="analysis-label">KEY:</span>
+                    <span class="analysis-value" id="keyA">--</span>
+                </div>
+            </div>
+            <div class="deck-controls">
+                <button class="control-btn play-pause-btn" id="playPauseA" onclick="togglePlayPause('A')">PLAY</button>
+                <button class="control-btn" onclick="stopDeck('A')">STOP</button>
+                <button class="control-btn" id="cueA" onclick="cueDeck('A')">CUE</button>
+            </div>
+            
+            <!-- Tempo Control -->
+            <div class="tempo-section">
+                <div class="tempo-label">TEMPO: <span id="tempoValueA">100%</span></div>
+                <input type="range" class="tempo-slider" id="tempoA" min="50" max="150" value="100" 
+                       oninput="adjustTempo('A', this.value)">
+            </div>
+
+
+
+            <!-- EQ Controls -->
+            <div class="eq-section">
+                <div class="eq-knob-container">
+                    <div class="eq-knob" id="bassA" onmousedown="startKnobDrag(event, 'A', 'bass')"></div>
+                    <div class="eq-label">BASS</div>
+                    <div class="eq-value" id="bassValueA">0.0dB</div>
+                </div>
+                <div class="eq-knob-container">
+                    <div class="eq-knob" id="midA" onmousedown="startKnobDrag(event, 'A', 'mid')"></div>
+                    <div class="eq-label">MID</div>
+                    <div class="eq-value" id="midValueA">0.0dB</div>
+                </div>
+                <div class="eq-knob-container">
+                    <div class="eq-knob" id="trebleA" onmousedown="startKnobDrag(event, 'A', 'treble')"></div>
+                    <div class="eq-label">TREBLE</div>
+                    <div class="eq-value" id="trebleValueA">0.0dB</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Master Deck -->
+        <div class="master-deck">
+            <!-- DJ Logo -->
+            <div class="dj-logo">
+                <div class="dj-logo-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="#1a1a2e">
+                        <path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10Z"/>
+                        <path d="M9,9H15V15H9V9Z" fill="#00ff88"/>
+                    </svg>
+                </div>
+                <div class="dj-logo-text">ArDeeJay ver1.0</div>
+            </div>
+
+            <div class="master-label">MASTER</div>
+            
+            <!-- Soundpads Section with Deck Gains -->
+            <div class="soundpads-section">
+                <div class="soundpads-label">SOUNDPADS</div>
+                <div class="soundpads-container">
+                    <!-- Deck A Gain -->
+                    <div class="deck-gain-section deck-gain-left">
+                        <div class="deck-gain-container">
+                            <div class="deck-gain-label">DECK A</div>
+                            <div class="deck-gain-fader-container">
+                                <div class="deck-gain-fader deck-a-fader" id="deckGainFaderA" onmousedown="startFaderDrag(event, 'deckGainA')">
+                                    <div class="fader-track"></div>
+                                    <div class="fader-handle" id="deckGainHandleA"></div>
+                                </div>
+                                <div class="deck-gain-value" id="deckGainValueA">100%</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Soundpads Grid -->
+                    <div class="soundpads-grid">
+                        <div class="soundpad empty" id="soundpad1" onclick="triggerSoundpad(1)" oncontextmenu="showSoundpadMenu(event, 1)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad2" onclick="triggerSoundpad(2)" oncontextmenu="showSoundpadMenu(event, 2)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad3" onclick="triggerSoundpad(3)" oncontextmenu="showSoundpadMenu(event, 3)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad4" onclick="triggerSoundpad(4)" oncontextmenu="showSoundpadMenu(event, 4)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad5" onclick="triggerSoundpad(5)" oncontextmenu="showSoundpadMenu(event, 5)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad6" onclick="triggerSoundpad(6)" oncontextmenu="showSoundpadMenu(event, 6)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad7" onclick="triggerSoundpad(7)" oncontextmenu="showSoundpadMenu(event, 7)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad8" onclick="triggerSoundpad(8)" oncontextmenu="showSoundpadMenu(event, 8)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad9" onclick="triggerSoundpad(9)" oncontextmenu="showSoundpadMenu(event, 9)">
+                            <span>EMPTY</span>
+                        </div>
+                        <div class="soundpad empty" id="soundpad10" onclick="triggerSoundpad(10)" oncontextmenu="showSoundpadMenu(event, 10)">
+                            <span>EMPTY</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Deck B Gain -->
+                    <div class="deck-gain-section deck-gain-right">
+                        <div class="deck-gain-container">
+                            <div class="deck-gain-label">DECK B</div>
+                            <div class="deck-gain-fader-container">
+                                <div class="deck-gain-fader deck-b-fader" id="deckGainFaderB" onmousedown="startFaderDrag(event, 'deckGainB')">
+                                    <div class="fader-track"></div>
+                                    <div class="fader-handle" id="deckGainHandleB"></div>
+                                </div>
+                                <div class="deck-gain-value" id="deckGainValueB">100%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="soundpad-controls">
+                    <button class="load-sounds-btn" onclick="loadSoundToSelectedPad()">LOAD</button>
+                    <button class="stop-sounds-btn" onclick="stopAllSoundpads()">STOP</button>
+                    <button class="change-sounds-btn" onclick="changeSoundpadSound()">CHANGE</button>
+                </div>
+                <input type="file" id="soundpadFileInput" accept="audio/*" class="hidden" onchange="handleSoundpadUpload(event)">
+            </div>
+            
+            <!-- Master Gain Slider -->
+            <div class="master-gain-section">
+                <div class="master-gain-container">
+                    <div class="master-gain-label-left">MASTER</div>
+                    <div class="master-gain-fader-container">
+                        <div class="master-gain-fader" id="masterGainFader" onmousedown="startFaderDrag(event, 'masterGain')">
+                            <div class="fader-track"></div>
+                            <div class="fader-handle" id="masterGainHandle"></div>
+                        </div>
+                        <div class="master-gain-value" id="masterGainValue">100%</div>
+                    </div>
+                    <div class="master-gain-label-right">GAIN</div>
+                </div>
+            </div>
+            
+            <!-- Match Controls Section -->
+            <div class="match-controls-section" id="matchControlsSection" style="display: none;">
+                <div class="match-buttons-container">
+                    <button class="match-btn" id="beatMatchBtn" onclick="toggleBeatMatch()" title="Beat Match">
+                        BEAT MATCH
+                    </button>
+                    <button class="settings-btn" onclick="openAudioSettings()" title="Audio Settings">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.22,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.22,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/>
+                        </svg>
+                    </button>
+                    <button class="match-btn" id="volumeMatchBtn" onclick="toggleVolumeMatch()" title="Volume Match">
+                        VOLUME MATCH
+                    </button>
+                </div>
+            </div>
+            
+            <div class="crossfader-section">
+                <div class="crossfader-label">CROSSFADER: <span id="crossfaderValue">50%</span></div>
+                <div class="crossfader-container">
+                    <div class="crossfader-fader" id="crossfaderFader" onmousedown="startFaderDrag(event, 'crossfader')">
+                        <div class="fader-track crossfader-track"></div>
+                        <div class="fader-handle crossfader-handle" id="crossfaderHandle"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Deck B -->
+        <div class="deck" id="deckB">
+            <div class="deck-label">DECK B</div>
+            <div class="track-title" id="trackTitleB">No Track Loaded</div>
+            <div class="vinyl" id="vinylB" ondrop="dropOnDeck(event, 'B')" ondragover="allowDrop(event)">
+                <div class="vinyl-radius" id="radiusB"></div>
+                <div class="vinyl-center">B</div>
+            </div>
+            <div class="waveform" id="waveformB" onclick="seekToPosition(event, 'B')">
+                <div class="drop-zone" id="dropZoneB"></div>
+                <div class="playback-indicator" id="indicatorB" style="display: none;" 
+                     onmousedown="startIndicatorDrag(event, 'B')"></div>
+            </div>
+            <div class="audio-analysis" id="analysisB">
+                <div class="analysis-item">
+                    <span class="analysis-label">VOLUME:</span>
+                    <span class="analysis-value" id="volumeB">--</span>
+                </div>
+                <div class="analysis-item">
+                    <span class="analysis-label">BPM:</span>
+                    <span class="analysis-value" id="bpmB">--</span>
+                </div>
+                <div class="analysis-item">
+                    <span class="analysis-label">KEY:</span>
+                    <span class="analysis-value" id="keyB">--</span>
+                </div>
+            </div>
+            <div class="deck-controls">
+                <button class="control-btn play-pause-btn" id="playPauseB" onclick="togglePlayPause('B')">PLAY</button>
+                <button class="control-btn" onclick="stopDeck('B')">STOP</button>
+                <button class="control-btn" id="cueB" onclick="cueDeck('B')">CUE</button>
+            </div>
+            
+            <!-- Tempo Control -->
+            <div class="tempo-section">
+                <div class="tempo-label">TEMPO: <span id="tempoValueB">100%</span></div>
+                <input type="range" class="tempo-slider" id="tempoB" min="50" max="150" value="100" 
+                       oninput="adjustTempo('B', this.value)">
+            </div>
+
+
+
+            <!-- EQ Controls -->
+            <div class="eq-section">
+                <div class="eq-knob-container">
+                    <div class="eq-knob" id="bassB" onmousedown="startKnobDrag(event, 'B', 'bass')"></div>
+                    <div class="eq-label">BASS</div>
+                    <div class="eq-value" id="bassValueB">0.0dB</div>
+                </div>
+                <div class="eq-knob-container">
+                    <div class="eq-knob" id="midB" onmousedown="startKnobDrag(event, 'B', 'mid')"></div>
+                    <div class="eq-label">MID</div>
+                    <div class="eq-value" id="midValueB">0.0dB</div>
+                </div>
+                <div class="eq-knob-container">
+                    <div class="eq-knob" id="trebleB" onmousedown="startKnobDrag(event, 'B', 'treble')"></div>
+                    <div class="eq-label">TREBLE</div>
+                    <div class="eq-value" id="trebleValueB">0.0dB</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Playlist -->
+    <div class="floating-playlist" id="floatingPlaylist">
+        <!-- Resize handles -->
+        <div class="resize-handle-tl" onmousedown="startResize(event, 'tl')"></div>
+        <div class="resize-handle-top" onmousedown="startResize(event, 'top')"></div>
+        <div class="resize-handle-bl" onmousedown="startResize(event, 'bl')"></div>
+        <div class="resize-handle-left" onmousedown="startResize(event, 'left')"></div>
+        <div class="resize-handle-right" onmousedown="startResize(event, 'right')"></div>
+        <div class="resize-handle-bottom" onmousedown="startResize(event, 'bottom')"></div>
+        
+        <div class="floating-playlist-header" onmousedown="startDrag(event)">
+            <h3 class="floating-playlist-title">PLAYLIST</h3>
+            <div style="display: flex; gap: 5px;">
+                <button class="playlist-toggle-btn" onclick="togglePlaylist()" title="Minimize/Maximize">−</button>
+                <button class="playlist-toggle-btn collapse-btn" onclick="collapsePlaylist()" title="Collapse">COLLAPSE</button>
+            </div>
+        </div>
+        <div class="floating-playlist-controls">
+            <input type="file" id="fileInput" accept="audio/*" multiple class="hidden" onchange="handleFileUpload(event)">
+            <button class="upload-btn" onclick="document.getElementById('fileInput').click()">UPLOAD</button>
+            <button class="autoplay-btn" id="autoplayBtn" onclick="toggleAutoplay()">AUTOPLAY</button>
+            <button class="clear-btn" id="clearBtn" onclick="clearPlaylist()" style="display: none;">CLEAR</button>
+        </div>
+        <div class="floating-playlist-content" id="playlistContent">
+            <div class="playlist-item" style="text-align: center; color: #666; padding: 20px;">
+                Upload music files to get started
+            </div>
+        </div>
+    </div>
+
+    <!-- Collapsed Playlist Button -->
+    <div class="playlist-collapsed-btn" id="playlistCollapsedBtn" onclick="restorePlaylist()" style="display: none;">
+        PLAYLIST
+    </div>
+
+    <!-- Expand Playlist Button -->
+    <div class="expand-playlist-btn" id="expandPlaylistBtn" onclick="expandPlaylist()" style="display: none;">
+        EXPAND PLAYLIST
+    </div>
+
+    <!-- User Manual Button -->
+    <button class="manual-btn" onclick="openManual()" title="User Manual">USER'S MANUAL</button>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p class="footer-text">Vibe Coded by <span class="contact-link" onclick="openContactModal()">ARDEE</span>. August 2025.</p>
+    </div>
+
+    <!-- Contact Modal -->
+    <div id="contactModal" class="contact-modal" style="display: none;">
+        <div class="contact-modal-content">
+            <div class="contact-modal-header">
+                <h3>Contact Developer</h3>
+                <button class="close-btn" onclick="closeContactModal()">×</button>
+            </div>
+            <form id="contactForm">
+                <div class="contact-form-group">
+                    <label for="contactEmail">Your Email Address *</label>
+                    <input type="email" id="contactEmail" name="email" required>
+                    <div class="form-validation-message" id="emailError">Please enter a valid email address</div>
+                </div>
+                
+                <div class="contact-form-group">
+                    <label for="contactSubject">Subject *</label>
+                    <input type="text" id="contactSubject" name="subject" required maxlength="100">
+                    <div class="form-validation-message" id="subjectError">Subject is required</div>
+                </div>
+                
+                <div class="contact-form-group">
+                    <label for="contactMessage">Message *</label>
+                    <textarea id="contactMessage" name="message" required maxlength="400" oninput="updateCharCounter()"></textarea>
+                    <div class="char-counter" id="charCounter">0/400 characters</div>
+                    <div class="form-validation-message" id="messageError">Message is required</div>
+                </div>
+                
+                <div class="captcha-section">
+                    <div class="captcha-question" id="captchaQuestion">What is 5 + 3?</div>
+                    <input type="number" id="captchaInput" class="captcha-input" placeholder="?" oninput="checkCaptcha()">
+                    <div class="form-validation-message" id="captchaError">Please solve the math problem</div>
+                </div>
+                
+                <button type="button" class="contact-send-btn" id="sendBtn" onclick="sendContactMessage()">
+                    SEND MESSAGE
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Audio Settings Modal -->
+    <div id="audioSettingsModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Audio Output Settings</h3>
+                <button class="close-btn" onclick="closeAudioSettings()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <label for="audioOutputSelect">Select Audio Output Device:</label>
+                    <select id="audioOutputSelect" onchange="changeAudioOutput()">
+                        <option value="default">Default System Output</option>
+                        <option value="speakers">Speakers</option>
+                        <option value="headphones">Headphones</option>
+                        <option value="hdmi">HDMI Audio</option>
+                        <option value="bluetooth">Bluetooth Device</option>
+                    </select>
+                </div>
+                <div class="setting-info">
+                    <p><strong>Note:</strong> Audio device switching depends on browser support and system permissions. Some devices may require manual system audio settings changes.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Soundpad Context Menu -->
+    <div id="soundpadMenu" class="soundpad-menu" style="display: none;">
+        <button onclick="loadSoundToSelectedPad()">Load Sound</button>
+        <button onclick="removeSoundFromPad()">Remove Sound</button>
+        <button onclick="renameSoundpad()">Rename</button>
+        <button onclick="closeSoundpadMenu()">Cancel</button>
+    </div>
+
+    <!-- User Manual Modal -->
+    <div id="manualModal" class="manual-modal" style="display: none;">
+        <div class="manual-modal-content">
+            <div class="manual-header">
+                <h2>ArDeeJay DJ App - User Manual</h2>
+                <button class="close-btn" onclick="closeManual()">×</button>
+            </div>
+            
+            <div class="manual-section">
+                <h3>🎧 Getting Started</h3>
+                <p>Welcome to ArDeeJay, your professional DJ mixing application! This manual will guide you through all the features and controls.</p>
+                
+                <div class="ui-diagram">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 600px; margin: 0 auto;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                            <div class="ui-element deck-a">DECK A</div>
+                            <div style="width: 60px; height: 60px; background: radial-gradient(circle, #1a1a1a 30%, #FF4500 31%, #FF4500 40%, #1a1a1a 41%); border-radius: 50%; border: 3px solid #FF4500; position: relative;">
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 20px; height: 20px; background: #666; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: white;">A</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                            <div class="ui-element master">MASTER</div>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <div style="width: 20px; height: 60px; background: linear-gradient(180deg, #ff6b6b 0%, #FF4500 50%, #cc3700 100%); border-radius: 2px; position: relative;">
+                                    <div style="position: absolute; left: 50%; top: 30%; transform: translateX(-50%); width: 36px; height: 12px; background: linear-gradient(145deg, #f0f0f0, #c0c0c0); border-radius: 6px; border: 1px solid #999;"></div>
+                                </div>
+                                <div style="width: 120px; height: 20px; background: linear-gradient(90deg, #FF4500 0%, #333 50%, #4A90E2 100%); border-radius: 4px; position: relative;">
+                                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30px; height: 14px; background: linear-gradient(145deg, #f0f0f0, #c0c0c0); border-radius: 4px; border: 1px solid #999;"></div>
+                                </div>
+                                <div style="width: 20px; height: 60px; background: linear-gradient(180deg, #ff6b6b 0%, #4A90E2 50%, #357ABD 100%); border-radius: 2px; position: relative;">
+                                    <div style="position: absolute; left: 50%; top: 70%; transform: translateX(-50%); width: 36px; height: 12px; background: linear-gradient(145deg, #f0f0f0, #c0c0c0); border-radius: 6px; border: 1px solid #999;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                            <div class="ui-element deck-b">DECK B</div>
+                            <div style="width: 60px; height: 60px; background: radial-gradient(circle, #1a1a1a 30%, #4A90E2 31%, #4A90E2 40%, #1a1a1a 41%); border-radius: 50%; border: 3px solid #4A90E2; position: relative;">
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 20px; height: 20px; background: #666; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: white;">B</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-section">
+                <h3>📁 Loading Music</h3>
+                <p>There are several ways to load music into the app:</p>
+                <ul>
+                    <li><strong>Playlist Upload:</strong> Click "UPLOAD" in the floating playlist to add multiple songs</li>
+                    <li><strong>Drag & Drop:</strong> Drag songs from the playlist directly onto the vinyl records</li>
+                    <li><strong>Load Buttons:</strong> Click on a song in the playlist to show "Load to Deck A/B" buttons</li>
+                </ul>
+                
+                <div class="ui-diagram">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 20px; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="background: linear-gradient(145deg, #ff6b6b, #ee5a52); border: none; border-radius: 6px; padding: 8px 12px; color: white; font-weight: bold; font-size: 11px;">UPLOAD</div>
+                            <div style="font-size: 10px; color: #ccc;">Click to add songs</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="width: 40px; height: 40px; background: radial-gradient(circle, #1a1a1a 30%, #00ff88 31%, #00ff88 40%, #1a1a1a 41%); border-radius: 50%; border: 2px solid #00ff88; position: relative;">
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: #666; border-radius: 50%; font-size: 8px; color: white; display: flex; align-items: center; justify-content: center;">♪</div>
+                            </div>
+                            <div style="font-size: 10px; color: #ccc;">Drag songs here</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="display: flex; gap: 4px;">
+                                <div style="background: linear-gradient(145deg, #FF4500, #cc3700); border: none; border-radius: 4px; padding: 4px 6px; color: white; font-weight: bold; font-size: 8px;">DECK A</div>
+                                <div style="background: linear-gradient(145deg, #4A90E2, #357ABD); border: none; border-radius: 4px; padding: 4px 6px; color: white; font-weight: bold; font-size: 8px;">DECK B</div>
+                            </div>
+                            <div style="font-size: 10px; color: #ccc;">Load to deck</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-section">
+                <h3>🎛️ Deck Controls</h3>
+                <p>Each deck (A and B) has identical controls:</p>
+                <ul>
+                    <li><strong>Vinyl Record:</strong> Visual representation of your track - spins when playing</li>
+                    <li><strong>Waveform:</strong> Click anywhere to jump to that position in the song</li>
+                    <li><strong>PLAY/PAUSE:</strong> Start or stop playback</li>
+                    <li><strong>STOP:</strong> Stop playback and return to beginning</li>
+                    <li><strong>CUE:</strong> Set cue point at the beginning of the track</li>
+                    <li><strong>TEMPO Slider:</strong> Adjust playback speed (50% - 150%)</li>
+                </ul>
+                
+                <div class="ui-diagram">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 15px; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="display: flex; gap: 8px;">
+                                <div style="background: linear-gradient(145deg, #00ff88, #00cc66); border: none; border-radius: 15px; padding: 8px 12px; color: #1a1a2e; font-weight: bold; font-size: 10px;">PLAY</div>
+                                <div style="background: linear-gradient(145deg, #3a3a5e, #2a2a4e); border: none; border-radius: 15px; padding: 8px 12px; color: white; font-weight: bold; font-size: 10px;">STOP</div>
+                                <div style="background: linear-gradient(145deg, #3a3a5e, #2a2a4e); border: none; border-radius: 15px; padding: 8px 12px; color: white; font-weight: bold; font-size: 10px;">CUE</div>
+                            </div>
+                            <div style="font-size: 10px; color: #ccc;">Playback Controls</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="width: 80px; height: 8px; background: linear-gradient(90deg, #1a1a2e, #2a2a3e); border-radius: 10px; position: relative;">
+                                <div style="position: absolute; top: 50%; left: 60%; transform: translate(-50%, -50%); width: 16px; height: 16px; background: linear-gradient(145deg, #00ff88, #00cc66); border-radius: 50%;"></div>
+                            </div>
+                            <div style="font-size: 10px; color: #ccc;">TEMPO: 120%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-section">
+                <h3>🎚️ EQ Controls</h3>
+                <p>Each deck has 3-band EQ controls:</p>
+                <ul>
+                    <li><strong>BASS:</strong> Low frequencies (drag up/down to adjust)</li>
+                    <li><strong>MID:</strong> Mid frequencies</li>
+                    <li><strong>TREBLE:</strong> High frequencies</li>
+                </ul>
+                <p>Range: -12dB to +12dB for each band</p>
+                
+                <div class="ui-diagram">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 20px;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="width: 40px; height: 40px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #4a4a6e, #2a2a4e); position: relative; box-shadow: 4px 4px 8px rgba(0,0,0,0.3), -4px -4px 8px rgba(255,255,255,0.05);">
+                                <div style="position: absolute; top: 4px; left: 50%; transform: translateX(-50%) rotate(-30deg); width: 2px; height: 12px; background: #00ff88; border-radius: 1px; transform-origin: 50% 16px;"></div>
+                            </div>
+                            <div style="font-size: 9px; color: #00ff88; font-weight: bold;">BASS</div>
+                            <div style="font-size: 7px; color: #fff; background: rgba(0,0,0,0.3); padding: 1px 3px; border-radius: 2px;">-2.5dB</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="width: 40px; height: 40px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #4a4a6e, #2a2a4e); position: relative; box-shadow: 4px 4px 8px rgba(0,0,0,0.3), -4px -4px 8px rgba(255,255,255,0.05);">
+                                <div style="position: absolute; top: 4px; left: 50%; transform: translateX(-50%) rotate(0deg); width: 2px; height: 12px; background: #00ff88; border-radius: 1px; transform-origin: 50% 16px;"></div>
+                            </div>
+                            <div style="font-size: 9px; color: #00ff88; font-weight: bold;">MID</div>
+                            <div style="font-size: 7px; color: #fff; background: rgba(0,0,0,0.3); padding: 1px 3px; border-radius: 2px;">0.0dB</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="width: 40px; height: 40px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #4a4a6e, #2a2a4e); position: relative; box-shadow: 4px 4px 8px rgba(0,0,0,0.3), -4px -4px 8px rgba(255,255,255,0.05);">
+                                <div style="position: absolute; top: 4px; left: 50%; transform: translateX(-50%) rotate(45deg); width: 2px; height: 12px; background: #00ff88; border-radius: 1px; transform-origin: 50% 16px;"></div>
+                            </div>
+                            <div style="font-size: 9px; color: #00ff88; font-weight: bold;">TREBLE</div>
+                            <div style="font-size: 7px; color: #fff; background: rgba(0,0,0,0.3); padding: 1px 3px; border-radius: 2px;">+4.0dB</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-section">
+                <h3>🎛️ Master Controls</h3>
+                <p>The center master section contains:</p>
+                <ul>
+                    <li><strong>Crossfader:</strong> Blend between Deck A (left) and Deck B (right)</li>
+                    <li><strong>Master Gain:</strong> Overall volume control</li>
+                    <li><strong>Deck Gain Faders:</strong> Individual volume for each deck</li>
+                    <li><strong>Beat Match:</strong> Automatically sync BPM between decks</li>
+                    <li><strong>Volume Match:</strong> Automatically match volume levels</li>
+                </ul>
+                
+                <div class="ui-diagram">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 20px; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="width: 100px; height: 16px; background: linear-gradient(90deg, #FF4500 0%, #333 50%, #4A90E2 100%); border-radius: 4px; position: relative;">
+                                <div style="position: absolute; top: 50%; left: 30%; transform: translate(-50%, -50%); width: 24px; height: 12px; background: linear-gradient(145deg, #f0f0f0, #c0c0c0); border-radius: 4px; border: 1px solid #999;"></div>
+                            </div>
+                            <div style="font-size: 10px; color: #FFD700; font-weight: bold;">CROSSFADER</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="width: 16px; height: 60px; background: linear-gradient(180deg, #ff6b6b 0%, #00ff88 50%, #333 100%); border-radius: 2px; position: relative;">
+                                <div style="position: absolute; left: 50%; top: 40%; transform: translateX(-50%); width: 28px; height: 10px; background: linear-gradient(145deg, #f0f0f0, #c0c0c0); border-radius: 6px; border: 1px solid #999;"></div>
+                            </div>
+                            <div style="font-size: 10px; color: #FFD700; font-weight: bold;">MASTER GAIN</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="background: linear-gradient(145deg, #4ecdc4, #45b7aa); border: 2px solid #1a1a2e; border-radius: 8px; padding: 6px 10px; color: #1a1a2e; font-weight: bold; font-size: 8px;">BEAT MATCH</div>
+                            <div style="font-size: 10px; color: #FFD700; font-weight: bold;">SYNC BPM</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-section">
+                <h3>🔊 Soundpads</h3>
+                <p>10 customizable sound effect pads:</p>
+                <ul>
+                    <li><strong>Loading Sounds:</strong> Right-click any pad and select "Load Sound"</li>
+                    <li><strong>Playing Effects:</strong> Left-click any loaded pad to trigger the sound</li>
+                    <li><strong>Managing Pads:</strong> Right-click for options to remove or rename sounds</li>
+                    <li><strong>Sound Limits:</strong> Audio files must be 20 seconds or shorter</li>
+                </ul>
+                
+                <div class="ui-diagram">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 15px; flex-wrap: wrap;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div style="background: linear-gradient(145deg, #4A90E2, #357ABD); border: 2px solid #4A90E2; border-radius: 8px; padding: 8px; min-height: 32px; display: flex; align-items: center; justify-content: center;">
+                                <span style="font-size: 7px; font-weight: bold; color: white; text-align: center;">AIRHORN</span>
+                            </div>
+                            <div style="background: linear-gradient(145deg, #1a1a2e, #0f0f1a); border: 2px dashed #444; border-radius: 8px; padding: 8px; min-height: 32px; display: flex; align-items: center; justify-content: center;">
+                                <span style="font-size: 7px; font-weight: bold; color: #666; text-align: center;">EMPTY</span>
+                            </div>
+                            <div style="background: linear-gradient(145deg, #4A90E2, #357ABD); border: 2px solid #4A90E2; border-radius: 8px; padding: 8px; min-height: 32px; display: flex; align-items: center; justify-content: center;">
+                                <span style="font-size: 7px; font-weight: bold; color: white; text-align: center;">DROP</span>
+                            </div>
+                            <div style="background: linear-gradient(145deg, #1a1a2e, #0f0f1a); border: 2px dashed #444; border-radius: 8px; padding: 8px; min-height: 32px; display: flex; align-items: center; justify-content: center;">
+                                <span style="font-size: 7px; font-weight: bold; color: #666; text-align: center;">EMPTY</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="font-size: 10px; color: #ccc;">Right-click to load sounds</div>
+                            <div style="font-size: 10px; color: #ccc;">Left-click to play</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-section">
+                <h3>🎵 AutoPlay Mode</h3>
+                <p>Automatic playlist mixing:</p>
+                <ul>
+                    <li><strong>Enable:</strong> Click "AUTOPLAY" button (requires songs in playlist)</li>
+                    <li><strong>Smart Crossfading:</strong> Automatically transitions between tracks</li>
+                    <li><strong>Volume Matching:</strong> Maintains consistent volume levels</li>
+                    <li><strong>Queue Management:</strong> Plays through entire playlist, then loops</li>
+                </ul>
+                
+                <div class="ui-diagram">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 20px; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="background: linear-gradient(145deg, #00ff88, #00cc66); border: none; border-radius: 6px; padding: 8px 12px; color: #1a1a2e; font-weight: bold; font-size: 11px;">AUTOPLAY</div>
+                            <div style="font-size: 10px; color: #ccc;">Enable auto mixing</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="width: 80px; height: 12px; background: linear-gradient(90deg, #FF4500 0%, #333 50%, #4A90E2 100%); border-radius: 4px; position: relative;">
+                                <div style="position: absolute; top: 50%; left: 20%; transform: translate(-50%, -50%); width: 16px; height: 8px; background: linear-gradient(145deg, #f0f0f0, #c0c0c0); border-radius: 4px; animation: crossfadeMove 3s ease-in-out infinite;"></div>
+                            </div>
+                            <div style="font-size: 10px; color: #ccc;">Auto crossfade</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="background: linear-gradient(145deg, #4ecdc4, #45b7aa); border: 2px solid #1a1a2e; border-radius: 8px; padding: 6px 10px; color: #1a1a2e; font-weight: bold; font-size: 8px;">VOLUME MATCH</div>
+                            <div style="font-size: 10px; color: #ccc;">Level matching</div>
+                        </div>
+                    </div>
+                    <style>
+                        @keyframes crossfadeMove {
+                            0% { left: 20%; }
+                            50% { left: 80%; }
+                            100% { left: 20%; }
+                        }
+                    </style>
+                </div>
+            </div>
+
+            <div class="manual-section">
+                <h3>📋 Playlist Management</h3>
+                <p>The floating playlist window offers:</p>
+                <ul>
+                    <li><strong>Drag to Reorder:</strong> Drag songs up/down to change playlist order</li>
+                    <li><strong>Minimize/Maximize:</strong> Use "−" button to minimize playlist</li>
+                    <li><strong>Collapse:</strong> Use "COLLAPSE" button to hide playlist completely</li>
+                    <li><strong>Resize:</strong> Drag edges to resize the playlist window</li>
+                    <li><strong>Move:</strong> Drag the header to reposition the playlist</li>
+                </ul>
+                
+                <div class="ui-diagram">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 15px; flex-wrap: wrap;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="background: linear-gradient(145deg, #2a2a3e, #1e1e32); border: 2px solid #00ff88; border-radius: 15px; padding: 15px; width: 200px; min-height: 120px; position: relative;">
+                                <div style="background: linear-gradient(145deg, #3a3a5e, #2a2a4e); padding: 8px; border-bottom: 2px solid #333; margin-bottom: 8px; border-radius: 8px;">
+                                    <div style="color: #00ff88; font-weight: bold; font-size: 10px; text-align: center;">PLAYLIST</div>
+                                </div>
+                                <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                    <div style="background: linear-gradient(145deg, #ff6b6b, #ee5a52); border: none; border-radius: 4px; padding: 4px 6px; color: white; font-weight: bold; font-size: 8px;">UPLOAD</div>
+                                    <div style="background: linear-gradient(145deg, #4ecdc4, #45b7aa); border: none; border-radius: 4px; padding: 4px 6px; color: white; font-weight: bold; font-size: 8px;">AUTOPLAY</div>
+                                    <div style="background: linear-gradient(145deg, #FFD700, #B8860B); border: none; border-radius: 4px; padding: 4px 6px; color: #1a1a2e; font-weight: bold; font-size: 8px;">COLLAPSE</div>
+                                </div>
+                                <div style="font-size: 8px; color: #ccc; line-height: 1.2;">
+                                    ♪ Song 1.mp3<br>
+                                    ♪ Song 2.mp3<br>
+                                    ♪ Song 3.mp3
+                                </div>
+                            </div>
+                            <div style="font-size: 10px; color: #ccc;">Floating playlist window</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                            <div style="font-size: 10px; color: #ccc; text-align: center;">
+                                • Drag songs to reorder<br>
+                                • Resize by dragging edges<br>
+                                • Move by dragging header<br>
+                                • Minimize or collapse
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-section">
+                <h3>⌨️ Keyboard Shortcuts</h3>
+                <ul>
+                    <li><strong>ESC:</strong> Exit fullscreen mode (show browser address bar)</li>
+                    <li><strong>Right-click Soundpads:</strong> Access soundpad menu</li>
+                    <li><strong>Click Waveform:</strong> Jump to position in track</li>
+                    <li><strong>Drag Playback Indicator:</strong> Scrub through track</li>
+                </ul>
+            </div>
+
+            <div class="manual-section">
+                <h3>💡 Pro Tips</h3>
+                <ul>
+                    <li>Use Beat Match to sync tempos before crossfading</li>
+                    <li>Monitor the audio analysis display for BPM and volume info</li>
+                    <li>Load tracks on both decks for seamless mixing</li>
+                    <li>Use EQ to create smooth transitions (cut bass on outgoing track)</li>
+                    <li>Soundpads are great for air horns, drops, and vocal samples</li>
+                    <li>AutoPlay mode is perfect for parties when you need a break</li>
+                </ul>
+            </div>
+
+            <div class="manual-footer">
+                <p>Vibe Coded by <strong>Engr. Randell M. Denaga</strong> on August 2025.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Enter fullscreen mode when loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            // Request fullscreen
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log('Fullscreen request failed:', err);
+                });
+            } else if (document.documentElement.webkitRequestFullscreen) {
+                document.documentElement.webkitRequestFullscreen();
+            } else if (document.documentElement.msRequestFullscreen) {
+                document.documentElement.msRequestFullscreen();
+            }
+        });
+
+        // Handle ESC key to exit fullscreen
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                if (document.fullscreenElement) {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    } else if (document.msExitFullscreen) {
+                        document.msExitFullscreen();
+                    }
+                }
+            }
+        });
+
+        // Global state
+        let decks = {
+            A: { 
+                audio: null, 
+                isPlaying: false, 
+                currentTrack: null,
+                audioContext: null,
+                sourceNode: null,
+                gainNode: null,
+                deckGainNode: null,
+                bassFilter: null,
+                midFilter: null,
+                trebleFilter: null,
+                tempo: 100,
+                deckGain: 100,
+                eq: { bass: 0, mid: 0, treble: 0 },
+                effects: {},
+                activeEffects: new Set(),
+                lastActiveTime: 0,
+                analyser: null,
+                silenceDetected: false,
+                bpm: null,
+                volume: null
+            },
+            B: { 
+                audio: null, 
+                isPlaying: false, 
+                currentTrack: null,
+                audioContext: null,
+                sourceNode: null,
+                gainNode: null,
+                deckGainNode: null,
+                bassFilter: null,
+                midFilter: null,
+                trebleFilter: null,
+                tempo: 100,
+                deckGain: 100,
+                eq: { bass: 0, mid: 0, treble: 0 },
+                effects: {},
+                activeEffects: new Set(),
+                lastActiveTime: 0,
+                analyser: null,
+                silenceDetected: false,
+                bpm: null,
+                volume: null
+            }
+        };
+        let playlist = [];
+        let autoplayEnabled = false;
+        let autoplayQueue = [];
+        let currentAutoplayIndex = 0;
+        let crossfaderValue = 50;
+        let knobDragging = null;
+        let lastActiveDeck = 'A';
+        let crossfadeInProgress = false;
+        let selectedTrackId = null;
+        let indicatorDragging = null;
+        let playbackUpdateIntervals = { A: null, B: null };
+        let beatMatchActive = false;
+        let volumeMatchActive = false;
+
+        // Initialize Web Audio API chain for deck
+        function initializeAudioChain(deckId) {
+            const deck = decks[deckId];
+            if (!deck.audioContext) {
+                // Create Web Audio API context and nodes
+                deck.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Create audio nodes
+                deck.sourceNode = null;
+                deck.deckGainNode = deck.audioContext.createGain();
+                deck.gainNode = deck.audioContext.createGain();
+                deck.analyser = deck.audioContext.createAnalyser();
+                
+                // Configure analyser for silence detection and volume analysis
+                deck.analyser.fftSize = 2048;
+                deck.analyser.smoothingTimeConstant = 0.8;
+                
+                // Create EQ filters
+                deck.bassFilter = deck.audioContext.createBiquadFilter();
+                deck.midFilter = deck.audioContext.createBiquadFilter();
+                deck.trebleFilter = deck.audioContext.createBiquadFilter();
+                
+                // Configure EQ filters
+                deck.bassFilter.type = 'lowshelf';
+                deck.bassFilter.frequency.value = 320;
+                deck.bassFilter.gain.value = 0;
+                
+                deck.midFilter.type = 'peaking';
+                deck.midFilter.frequency.value = 1000;
+                deck.midFilter.Q.value = 1;
+                deck.midFilter.gain.value = 0;
+                
+                deck.trebleFilter.type = 'highshelf';
+                deck.trebleFilter.frequency.value = 3200;
+                deck.trebleFilter.gain.value = 0;
+                
+                // Audio chain: source -> deckGain -> bass -> mid -> treble -> analyser -> gain -> destination
+                deck.deckGainNode.connect(deck.bassFilter);
+                deck.bassFilter.connect(deck.midFilter);
+                deck.midFilter.connect(deck.trebleFilter);
+                deck.trebleFilter.connect(deck.analyser);
+                deck.analyser.connect(deck.gainNode);
+                deck.gainNode.connect(deck.audioContext.destination);
+                
+                // Set initial gains
+                deck.deckGainNode.gain.value = 1.0;
+                deck.gainNode.gain.value = 1.0;
+            }
+        }
+
+        // File upload handling
+        function handleFileUpload(event) {
+            const files = Array.from(event.target.files);
+            files.forEach(file => {
+                if (file.type.startsWith('audio/')) {
+                    const track = {
+                        id: Date.now() + Math.random(),
+                        name: file.name.replace(/\.[^/.]+$/, ""),
+                        file: file,
+                        url: URL.createObjectURL(file)
+                    };
+                    playlist.push(track);
+                }
+            });
+            updatePlaylistDisplay();
+        }
+
+        // Update playlist display
+        function updatePlaylistDisplay() {
+            const playlistEl = document.getElementById('playlistContent');
+            const clearBtn = document.getElementById('clearBtn');
+            
+            if (playlist.length === 0) {
+                playlistEl.innerHTML = '<div class="playlist-item" style="text-align: center; color: #666; padding: 20px;">Upload music files to get started</div>';
+                clearBtn.style.display = 'none';
+                return;
+            }
+
+            // Show clear button when playlist has songs
+            clearBtn.style.display = 'block';
+
+            playlistEl.innerHTML = playlist.map((track, index) => `
+                <div class="playlist-item" draggable="true" 
+                     ondragstart="dragStartPlaylist(event, ${index})" 
+                     ondragover="dragOverPlaylist(event)" 
+                     ondrop="dropPlaylist(event, ${index})"
+                     ondragend="dragEndPlaylist(event)"
+                     onclick="selectTrack('${track.id}')">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <span>${track.name}</span>
+                    </div>
+                    <div class="load-buttons" id="loadButtons${track.id}">
+                        <button class="load-btn deck-a" onclick="loadTrackToDeck(playlist.find(t => t.id == '${track.id}'), 'A')">Load to Deck A</button>
+                        <button class="load-btn deck-b" onclick="loadTrackToDeck(playlist.find(t => t.id == '${track.id}'), 'B')">Load to Deck B</button>
+                        <button class="load-btn" onclick="removeTrack('${track.id}')" style="background: linear-gradient(145deg, #ff6b6b, #ee5a52);">REMOVE</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function clearPlaylist() {
+            if (playlist.length === 0) return;
+            
+            const confirmClear = confirm('Are you sure you want to remove all songs from the playlist?');
+            if (!confirmClear) return;
+            
+            // Stop autoplay if active
+            if (autoplayEnabled) {
+                toggleAutoplay();
+            }
+            
+            // Clean up URLs to prevent memory leaks
+            playlist.forEach(track => {
+                if (track.url) {
+                    URL.revokeObjectURL(track.url);
+                }
+            });
+            
+            // Clear playlist array
+            playlist = [];
+            autoplayQueue = [];
+            currentAutoplayIndex = 0;
+            selectedTrackId = null;
+            autoplayReferenceVolume = null;
+            
+            // Update display
+            updatePlaylistDisplay();
+        }
+
+        // Drag and drop functionality
+        function dragStart(event, trackId) {
+            event.dataTransfer.setData('text/plain', trackId);
+        }
+
+        function allowDrop(event) {
+            event.preventDefault();
+            event.currentTarget.classList.add('drag-over');
+        }
+
+        function dropOnDeck(event, deckId) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('drag-over');
+            const trackId = event.dataTransfer.getData('text/plain');
+            const track = playlist.find(t => t.id == trackId);
+            if (track) {
+                loadTrackToDeck(track, deckId);
+            }
+        }
+
+        // Load track to deck
+        function loadTrackToDeck(track, deckId) {
+            const deck = decks[deckId];
+            
+            // Stop current audio if playing
+            if (deck.audio) {
+                deck.audio.pause();
+                deck.audio.currentTime = 0;
+                if (deck.sourceNode) {
+                    deck.sourceNode.disconnect();
+                }
+            }
+
+            // Initialize audio chain
+            initializeAudioChain(deckId);
+
+            // Create HTML5 audio element with original quality
+            deck.audio = new Audio(track.url);
+            deck.audio.crossOrigin = 'anonymous';
+            deck.audio.preload = 'auto';
+            
+            // Preserve original volume and quality
+            deck.audio.volume = 1.0;
+            deck.audio.preservesPitch = false; // Allow tempo changes
+            
+            deck.currentTrack = track;
+            deck.isPlaying = false;
+
+            // Connect audio to Web Audio API when ready
+            deck.audio.addEventListener('canplay', async () => {
+                try {
+                    if (!deck.sourceNode) {
+                        // Resume audio context if suspended
+                        if (deck.audioContext.state === 'suspended') {
+                            await deck.audioContext.resume();
+                        }
+                        
+                        deck.sourceNode = deck.audioContext.createMediaElementSource(deck.audio);
+                        deck.sourceNode.connect(deck.deckGainNode);
+                    }
+                } catch (error) {
+                    console.log('Audio connection error:', error);
+                    // Fallback to direct HTML5 audio if Web Audio fails
+                    deck.audio.volume = 1.0;
+                }
+            });
+
+            // Add event listeners for autoplay
+            deck.audio.addEventListener('timeupdate', () => {
+                if (autoplayEnabled) {
+                    monitorAudioForAutoplay(deckId);
+                }
+            });
+
+            deck.audio.addEventListener('ended', () => {
+                // Stop deck rotation and visual effects when song ends
+                deck.isPlaying = false;
+                const radius = document.getElementById(`radius${deckId}`);
+                const vinyl = document.getElementById(`vinyl${deckId}`);
+                radius.classList.remove('rotating');
+                vinyl.classList.remove('spinning');
+                document.getElementById(`deck${deckId}`).classList.remove('active');
+                updatePlayPauseButton(deckId);
+                stopPlaybackIndicatorUpdate(deckId);
+                
+                if (autoplayEnabled) {
+                    handleTrackEnd(deckId);
+                }
+            });
+
+            // Show radius indicator
+            const radius = document.getElementById(`radius${deckId}`);
+            radius.classList.add('visible');
+
+            // Update waveform display with responsive resolution
+            const waveformEl = document.getElementById(`waveform${deckId}`);
+            const waveformWidth = waveformEl.offsetWidth || 300;
+            const barCount = Math.min(Math.max(Math.floor(waveformWidth / 3), 50), 150); // Adaptive bar count
+            
+            waveformEl.innerHTML = `
+                <div class="waveform-bars">
+                    ${Array(barCount).fill(0).map((_, i) => `<div class="waveform-bar" id="bar${deckId}${i}" style="height: ${Math.random() * 80 + 20}%"></div>`).join('')}
+                </div>
+                <div class="playback-indicator" id="indicator${deckId}" 
+                     onmousedown="startIndicatorDrag(event, '${deckId}')"></div>
+            `;
+            
+            // Show the playback indicator
+            const indicator = document.getElementById(`indicator${deckId}`);
+            indicator.style.display = 'block';
+
+            // Update vinyl display
+            const vinylEl = document.getElementById(`vinyl${deckId}`);
+            vinylEl.style.background = `radial-gradient(circle, #1a1a1a 30%, #00ff88 31%, #00ff88 40%, #1a1a1a 41%)`;
+            
+            // Update track title display
+            const trackTitleEl = document.getElementById(`trackTitle${deckId}`);
+            trackTitleEl.textContent = track.name;
+            
+            // Analyze track for BPM and volume
+            analyzeTrack(deckId);
+            
+            // Start blinking play button when track is loaded
+            updatePlayPauseButton(deckId);
+            
+            // Show match controls if both decks have tracks
+            updateMatchControlsVisibility();
+        }
+
+        // Toggle play/pause function
+        function togglePlayPause(deckId) {
+            const deck = decks[deckId];
+            if (!deck.audio) return;
+            
+            if (deck.isPlaying) {
+                pauseDeck(deckId);
+            } else {
+                playDeck(deckId);
+            }
+        }
+
+        // Deck controls
+        async function playDeck(deckId) {
+            const deck = decks[deckId];
+            if (deck.audio && !deck.isPlaying) {
+                try {
+                    // Initialize audio chain if not already done
+                    if (!deck.audioContext) {
+                        initializeAudioChain(deckId);
+                    }
+                    
+                    // Resume audio context if suspended
+                    if (deck.audioContext && deck.audioContext.state === 'suspended') {
+                        await deck.audioContext.resume();
+                    }
+                    
+                    // Play the audio
+                    await deck.audio.play();
+                    deck.isPlaying = true;
+                    deck.lastActiveTime = Date.now();
+                    lastActiveDeck = deckId;
+                    
+                    // Start updating playback indicator
+                    startPlaybackIndicatorUpdate(deckId);
+                    
+                    // Update playlist highlighting
+                    updatePlaylistHighlighting();
+                    
+                    // Start radius rotation
+                    const radius = document.getElementById(`radius${deckId}`);
+                    radius.classList.add('rotating');
+                    const rotationSpeed = (2 / (deck.tempo / 100)) + 's';
+                    radius.style.animationDuration = rotationSpeed;
+                    
+                    document.getElementById(`vinyl${deckId}`).classList.add('spinning');
+                    document.getElementById(`deck${deckId}`).classList.add('active');
+                    
+                    // Update button state
+                    updatePlayPauseButton(deckId);
+                    updateCrossfaderVolumes();
+                } catch (error) {
+                    console.log('Playback error:', error);
+                    alert('Unable to play audio. Please check your browser settings and try again.');
+                }
+            }
+        }
+
+        function pauseDeck(deckId) {
+            const deck = decks[deckId];
+            if (deck.audio && deck.isPlaying) {
+                deck.audio.pause();
+                deck.isPlaying = false;
+                
+                // Stop updating playback indicator
+                stopPlaybackIndicatorUpdate(deckId);
+                
+                // Stop radius rotation and vinyl spinning
+                const radius = document.getElementById(`radius${deckId}`);
+                const vinyl = document.getElementById(`vinyl${deckId}`);
+                radius.classList.remove('rotating');
+                vinyl.classList.remove('spinning');
+                
+                document.getElementById(`deck${deckId}`).classList.remove('active');
+                
+                // Add paused blinking effect
+                document.getElementById(`deck${deckId}`).classList.add('paused');
+                
+                updatePlayPauseButton(deckId);
+            }
+        }
+
+        function stopDeck(deckId) {
+            const deck = decks[deckId];
+            if (deck.audio) {
+                deck.audio.pause();
+                deck.audio.currentTime = 0;
+                deck.isPlaying = false;
+                
+                // Stop updating playback indicator and reset position
+                stopPlaybackIndicatorUpdate(deckId);
+                updatePlaybackIndicator(deckId, 0);
+                
+                // Stop radius rotation and vinyl spinning
+                const radius = document.getElementById(`radius${deckId}`);
+                const vinyl = document.getElementById(`vinyl${deckId}`);
+                radius.classList.remove('rotating');
+                vinyl.classList.remove('spinning');
+                
+                document.getElementById(`deck${deckId}`).classList.remove('active', 'paused');
+                updatePlayPauseButton(deckId);
+            }
+        }
+
+        function cueDeck(deckId) {
+            const deck = decks[deckId];
+            if (!deck.audio) return;
+            
+            // Set cue point at current position
+            deck.audio.currentTime = 0;
+            updatePlaybackIndicator(deckId, 0);
+            updateWaveformBars(deckId, 0);
+        }
+
+        function updatePlayPauseButton(deckId) {
+            const deck = decks[deckId];
+            const playPauseBtn = document.getElementById(`playPause${deckId}`);
+            
+            if (deck.isPlaying) {
+                playPauseBtn.textContent = 'PAUSE';
+                playPauseBtn.classList.add('active');
+                playPauseBtn.classList.remove('loaded');
+                // Remove paused blinking when playing
+                document.getElementById(`deck${deckId}`).classList.remove('paused');
+            } else {
+                playPauseBtn.textContent = 'PLAY';
+                playPauseBtn.classList.remove('active');
+                // Add loaded blinking if track is loaded but not playing
+                if (deck.currentTrack) {
+                    playPauseBtn.classList.add('loaded');
+                }
+            }
+        }
+
+        // Tempo adjustment
+        function adjustTempo(deckId, value) {
+            const deck = decks[deckId];
+            deck.tempo = value;
+            document.getElementById(`tempoValue${deckId}`).textContent = `${value}%`;
+            
+            if (deck.audio) {
+                deck.audio.playbackRate = value / 100;
+                
+                // Update radius rotation speed
+                const radius = document.getElementById(`radius${deckId}`);
+                if (radius.classList.contains('rotating')) {
+                    const rotationSpeed = (2 / (value / 100)) + 's';
+                    radius.style.animationDuration = rotationSpeed;
+                }
+            }
+        }
+
+        // Deck gain adjustment
+        function adjustDeckGain(deckId, value) {
+            const deck = decks[deckId];
+            deck.deckGain = value;
+            document.getElementById(`deckGainValue${deckId}`).textContent = `${value}%`;
+            
+            if (deck.deckGainNode) {
+                deck.deckGainNode.gain.value = value / 100;
+            } else if (deck.audio) {
+                // Fallback to HTML5 audio volume
+                deck.audio.volume = Math.min(1.0, value / 100);
+            }
+            
+            updateDeckGainFaderPosition(deckId);
+        }
+
+        function updateDeckGainFaderPosition(deckId) {
+            const handle = document.getElementById(`deckGainHandle${deckId}`);
+            const fader = document.getElementById(`deckGainFader${deckId}`);
+            if (handle && fader) {
+                const deck = decks[deckId];
+                const percentage = deck.deckGain / 200; // 0-200% range
+                const position = (1 - percentage) * (fader.offsetHeight - handle.offsetHeight);
+                handle.style.top = `${position}px`;
+            }
+        }
+
+        // Crossfader control
+        function adjustCrossfader(value) {
+            crossfaderValue = value;
+            document.getElementById('crossfaderValue').textContent = `${value}%`;
+            updateCrossfaderVolumes();
+        }
+
+        // Master gain control
+        let masterGainValue = 100;
+        let faderDragging = null;
+
+        function adjustMasterGain(value) {
+            masterGainValue = value;
+            document.getElementById('masterGainValue').textContent = `${value}%`;
+            updateCrossfaderVolumes();
+            updateMasterGainFaderPosition();
+        }
+
+        function updateMasterGainFaderPosition() {
+            const handle = document.getElementById('masterGainHandle');
+            const fader = document.getElementById('masterGainFader');
+            if (handle && fader) {
+                const percentage = masterGainValue / 200; // 0-200% range
+                const position = (1 - percentage) * (fader.offsetHeight - handle.offsetHeight);
+                handle.style.top = `${position}px`;
+            }
+        }
+
+        function startFaderDrag(event, faderType) {
+            event.preventDefault();
+            faderDragging = { type: faderType, startY: event.clientY, startX: event.clientX };
+            
+            document.addEventListener('mousemove', handleFaderDrag);
+            document.addEventListener('mouseup', stopFaderDrag);
+        }
+
+        function handleFaderDrag(event) {
+            if (!faderDragging) return;
+            
+            const { type } = faderDragging;
+            
+            if (type === 'masterGain') {
+                const fader = document.getElementById('masterGainFader');
+                const handle = document.getElementById('masterGainHandle');
+                const rect = fader.getBoundingClientRect();
+                const mouseY = event.clientY - rect.top;
+                const percentage = 1 - (mouseY / rect.height);
+                const clampedPercentage = Math.max(0, Math.min(1, percentage));
+                const value = Math.round(clampedPercentage * 200);
+                
+                adjustMasterGain(value);
+            } else if (type === 'crossfader') {
+                const fader = document.getElementById('crossfaderFader');
+                const handle = document.getElementById('crossfaderHandle');
+                const rect = fader.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const percentage = mouseX / rect.width;
+                const clampedPercentage = Math.max(0, Math.min(1, percentage));
+                const value = Math.round(clampedPercentage * 100);
+                
+                adjustCrossfader(value);
+                updateCrossfaderPosition();
+            } else if (type === 'deckGainA' || type === 'deckGainB') {
+                const deckId = type === 'deckGainA' ? 'A' : 'B';
+                const fader = document.getElementById(`deckGainFader${deckId}`);
+                const handle = document.getElementById(`deckGainHandle${deckId}`);
+                const rect = fader.getBoundingClientRect();
+                const mouseY = event.clientY - rect.top;
+                const percentage = 1 - (mouseY / rect.height);
+                const clampedPercentage = Math.max(0, Math.min(1, percentage));
+                const value = Math.round(clampedPercentage * 200);
+                
+                adjustDeckGain(deckId, value);
+            }
+        }
+
+        function stopFaderDrag() {
+            faderDragging = null;
+            document.removeEventListener('mousemove', handleFaderDrag);
+            document.removeEventListener('mouseup', stopFaderDrag);
+        }
+
+        function updateCrossfaderPosition() {
+            const handle = document.getElementById('crossfaderHandle');
+            const fader = document.getElementById('crossfaderFader');
+            if (handle && fader) {
+                const percentage = crossfaderValue / 100;
+                const position = percentage * (fader.offsetWidth - handle.offsetWidth);
+                handle.style.left = `${position}px`;
+            }
+        }
+
+        function updateCrossfaderVolumes() {
+            const deckA = decks.A;
+            const deckB = decks.B;
+            
+            // Calculate volumes based on crossfader position (0-100)
+            const normalizedValue = crossfaderValue / 100;
+            const volumeA = Math.cos(normalizedValue * (Math.PI / 2));
+            const volumeB = Math.sin(normalizedValue * (Math.PI / 2));
+            
+            // Apply master gain (0-200% range)
+            const masterGain = masterGainValue / 100;
+            
+            // Update Web Audio API volumes if available, otherwise use HTML5 audio
+            if (deckA.gainNode) {
+                deckA.gainNode.gain.value = volumeA * masterGain;
+            } else if (deckA.audio) {
+                deckA.audio.volume = volumeA * masterGain;
+            }
+            
+            if (deckB.gainNode) {
+                deckB.gainNode.gain.value = volumeB * masterGain;
+            } else if (deckB.audio) {
+                deckB.audio.volume = volumeB * masterGain;
+            }
+        }
+
+        // EQ knob handling
+        function startKnobDrag(event, deckId, eqType) {
+            event.preventDefault();
+            knobDragging = { deckId, eqType, startY: event.clientY };
+            
+            document.addEventListener('mousemove', handleKnobDrag);
+            document.addEventListener('mouseup', stopKnobDrag);
+        }
+
+        function handleKnobDrag(event) {
+            if (!knobDragging) return;
+            
+            const { deckId, eqType, startY } = knobDragging;
+            const deltaY = startY - event.clientY;
+            const sensitivity = 2;
+            const change = deltaY / sensitivity;
+            
+            const deck = decks[deckId];
+            deck.eq[eqType] = Math.max(-12, Math.min(12, deck.eq[eqType] + change));
+            
+            // Update knob visual
+            const knob = document.getElementById(`${eqType}${deckId}`);
+            const rotation = (deck.eq[eqType] / 12) * 135; // -135 to +135 degrees
+            knob.style.transform = `rotate(${rotation}deg)`;
+            
+            // Update value display
+            const valueEl = document.getElementById(`${eqType}Value${deckId}`);
+            if (valueEl) {
+                valueEl.textContent = `${deck.eq[eqType].toFixed(1)}dB`;
+            }
+            
+            // Apply real EQ filter using Web Audio API
+            if (deck.audio && deck[`${eqType}Filter`]) {
+                const filter = deck[`${eqType}Filter`];
+                
+                // Apply gain changes to the appropriate filter
+                if (eqType === 'bass') {
+                    filter.gain.value = deck.eq[eqType];
+                } else if (eqType === 'mid') {
+                    filter.gain.value = deck.eq[eqType];
+                } else if (eqType === 'treble') {
+                    filter.gain.value = deck.eq[eqType];
+                }
+            }
+            
+            knobDragging.startY = event.clientY;
+        }
+
+        function stopKnobDrag() {
+            knobDragging = null;
+            document.removeEventListener('mousemove', handleKnobDrag);
+            document.removeEventListener('mouseup', stopKnobDrag);
+        }
+
+        // Autoplay functionality
+        let autoplayReferenceVolume = null;
+        
+        function toggleAutoplay() {
+            // Check if playlist is empty
+            if (playlist.length === 0) {
+                alert('Please add songs to the playlist before enabling AutoPlay mode.');
+                return;
+            }
+            
+            autoplayEnabled = !autoplayEnabled;
+            const btn = document.getElementById('autoplayBtn');
+            
+            if (autoplayEnabled) {
+                btn.classList.add('active');
+                btn.textContent = 'AutoPlay is Active';
+                setupAutoplayQueue();
+                startAutoplay();
+                // Reset reference volume for new autoplay session
+                autoplayReferenceVolume = null;
+            } else {
+                btn.classList.remove('active');
+                btn.textContent = 'AutoPlay ON';
+                crossfadeInProgress = false;
+                autoplayReferenceVolume = null;
+            }
+        }
+
+        function setupAutoplayQueue() {
+            if (playlist.length === 0) return;
+            
+            // Start with selected track or first track
+            let startIndex = 0;
+            if (selectedTrackId) {
+                startIndex = playlist.findIndex(track => track.id == selectedTrackId);
+                if (startIndex === -1) startIndex = 0;
+            }
+            
+            // Create queue starting from selected track, then continue with all remaining songs
+            autoplayQueue = [...playlist]; // Copy entire playlist
+            
+            // If a specific track was selected, reorder to start from that track
+            if (selectedTrackId && startIndex > 0) {
+                autoplayQueue = [
+                    ...playlist.slice(startIndex),
+                    ...playlist.slice(0, startIndex)
+                ];
+            }
+            
+            currentAutoplayIndex = 0;
+            console.log(`AutoPlay Queue setup: ${autoplayQueue.length} tracks, starting with "${autoplayQueue[0].name}"`);
+        }
+
+        function startAutoplay() {
+            if (!autoplayEnabled || autoplayQueue.length === 0) return;
+            
+            const track = autoplayQueue[currentAutoplayIndex];
+            loadTrackToDeck(track, lastActiveDeck);
+            
+            // Set reference volume from first track if not set
+            setTimeout(() => {
+                if (autoplayReferenceVolume === null) {
+                    const deck = decks[lastActiveDeck];
+                    if (deck.volume) {
+                        autoplayReferenceVolume = deck.volume;
+                        console.log(`AutoPlay Reference Volume set to: ${autoplayReferenceVolume}%`);
+                    }
+                } else {
+                    // Auto-adjust volume for subsequent tracks
+                    autoAdjustVolumeForAutoplay(lastActiveDeck);
+                }
+                playDeck(lastActiveDeck);
+            }, 500); // Wait for track analysis
+        }
+
+        function monitorAudioForAutoplay(deckId) {
+            const deck = decks[deckId];
+            if (!deck.audio || !deck.analyser) return;
+            
+            const audio = deck.audio;
+            const duration = audio.duration;
+            const currentTime = audio.currentTime;
+            const timeRemaining = duration - currentTime;
+            
+            // Start crossfade when 15 seconds remain or when silence is detected in last 30 seconds
+            if (timeRemaining <= 15 && !crossfadeInProgress) {
+                const silenceDetected = detectSilence(deckId);
+                if (timeRemaining <= 15 || (timeRemaining <= 30 && silenceDetected)) {
+                    startCrossfade(deckId);
+                }
+            }
+        }
+
+        function detectSilence(deckId) {
+            const deck = decks[deckId];
+            if (!deck.analyser) return false;
+            
+            const bufferLength = deck.analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            deck.analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate average amplitude
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+            }
+            const average = sum / bufferLength;
+            
+            // Consider silence if average amplitude is below threshold
+            return average < 10; // Adjust threshold as needed
+        }
+
+        function startCrossfade(currentDeckId) {
+            if (crossfadeInProgress) return;
+            crossfadeInProgress = true;
+            
+            // Determine next deck
+            const nextDeckId = currentDeckId === 'A' ? 'B' : 'A';
+            
+            // Check if we have more tracks to play
+            if (currentAutoplayIndex + 1 >= autoplayQueue.length) {
+                console.log('AutoPlay: All tracks completed');
+                // Optionally restart from beginning or stop autoplay
+                currentAutoplayIndex = 0; // Restart from beginning
+            } else {
+                currentAutoplayIndex++;
+            }
+            
+            const nextTrack = autoplayQueue[currentAutoplayIndex];
+            console.log(`AutoPlay: Loading track ${currentAutoplayIndex + 1}/${autoplayQueue.length}: "${nextTrack.name}"`);
+            
+            loadTrackToDeck(nextTrack, nextDeckId);
+            
+            // Wait a moment for track to load, then start crossfade
+            setTimeout(() => {
+                // Auto-adjust volume for the new track
+                if (autoplayReferenceVolume !== null) {
+                    autoAdjustVolumeForAutoplay(nextDeckId);
+                }
+                playDeck(nextDeckId);
+                performCrossfade(currentDeckId, nextDeckId);
+            }, 1000);
+        }
+
+        function performCrossfade(fromDeckId, toDeckId) {
+            const crossfader = document.getElementById('crossfader');
+            const startValue = fromDeckId === 'A' ? 0 : 100;
+            const endValue = toDeckId === 'A' ? 0 : 100;
+            const duration = 8000; // 8 second crossfade
+            const steps = 100;
+            const stepDuration = duration / steps;
+            
+            let currentStep = 0;
+            
+            const fadeInterval = setInterval(() => {
+                currentStep++;
+                const progress = currentStep / steps;
+                const currentValue = startValue + (endValue - startValue) * progress;
+                
+                crossfader.value = currentValue;
+                adjustCrossfader(currentValue);
+                
+                if (currentStep >= steps) {
+                    clearInterval(fadeInterval);
+                    // Stop the previous deck
+                    setTimeout(() => {
+                        stopDeck(fromDeckId);
+                        crossfadeInProgress = false;
+                        lastActiveDeck = toDeckId;
+                    }, 1000);
+                }
+            }, stepDuration);
+        }
+
+        function handleTrackEnd(deckId) {
+            if (autoplayEnabled && !crossfadeInProgress) {
+                // If track ended without crossfade, immediately start next track
+                startCrossfade(deckId);
+            }
+        }
+
+        function autoAdjustVolumeForAutoplay(deckId) {
+            if (!autoplayReferenceVolume) return;
+            
+            const deck = decks[deckId];
+            if (!deck.volume) return;
+            
+            // Calculate the volume ratio needed to match reference
+            const volumeRatio = autoplayReferenceVolume / deck.volume;
+            const newDeckGain = Math.max(0, Math.min(200, deck.deckGain * volumeRatio));
+            
+            // Apply the deck gain adjustment
+            adjustDeckGain(deckId, newDeckGain);
+            
+            console.log(`AutoPlay Volume Match: Deck ${deckId} gain adjusted to ${newDeckGain}% (${deck.volume}% -> ${autoplayReferenceVolume}% reference)`);
+        }
+
+        function selectTrack(trackId) {
+            // Store selected track for autoplay queue
+            selectedTrackId = trackId;
+            
+            // Visual feedback for track selection
+            document.querySelectorAll('.playlist-item').forEach(item => {
+                item.classList.remove('playing');
+            });
+            
+            // Hide all load buttons
+            document.querySelectorAll('.load-buttons').forEach(buttons => {
+                buttons.classList.remove('show');
+            });
+            
+            // Show selected track and its load buttons
+            const selectedItem = event.target.closest('.playlist-item');
+            selectedItem.classList.add('playing');
+            
+            const loadButtons = document.getElementById(`loadButtons${trackId}`);
+            if (loadButtons) {
+                loadButtons.classList.add('show');
+            }
+        }
+
+        function removeTrack(trackId) {
+            event.stopPropagation();
+            playlist = playlist.filter(track => track.id != trackId);
+            updatePlaylistDisplay();
+        }
+
+        // Floating Playlist Functions
+        let playlistState = 'expanded'; // 'expanded', 'minimized', 'collapsed'
+        let savedPlaylistSize = { width: 320, height: 400 };
+        let savedPlaylistPosition = { top: 20, right: 20 };
+
+        function togglePlaylist() {
+            const playlist = document.getElementById('floatingPlaylist');
+            const toggleBtn = document.querySelector('.playlist-toggle-btn');
+            const collapsedBtn = document.getElementById('playlistCollapsedBtn');
+            
+            if (playlistState === 'expanded') {
+                // Save current size before minimizing
+                const rect = playlist.getBoundingClientRect();
+                savedPlaylistSize.width = rect.width;
+                savedPlaylistSize.height = rect.height;
+                
+                playlist.classList.add('minimized');
+                toggleBtn.textContent = '+';
+                toggleBtn.title = 'Maximize';
+                playlistState = 'minimized';
+            } else if (playlistState === 'minimized') {
+                // Collapse completely
+                playlist.classList.add('collapsed');
+                collapsedBtn.style.display = 'block';
+                playlistState = 'collapsed';
+            } else {
+                // Restore from collapsed
+                playlist.classList.remove('minimized', 'collapsed');
+                collapsedBtn.style.display = 'none';
+                toggleBtn.textContent = '−';
+                toggleBtn.title = 'Minimize';
+                playlistState = 'expanded';
+                
+                // Restore saved size
+                playlist.style.width = savedPlaylistSize.width + 'px';
+                playlist.style.height = savedPlaylistSize.height + 'px';
+            }
+        }
+
+        function restorePlaylist() {
+            const playlist = document.getElementById('floatingPlaylist');
+            const toggleBtn = document.querySelector('.playlist-toggle-btn');
+            const collapsedBtn = document.getElementById('playlistCollapsedBtn');
+            
+            playlist.classList.remove('minimized', 'collapsed');
+            collapsedBtn.style.display = 'none';
+            toggleBtn.textContent = '−';
+            toggleBtn.title = 'Minimize';
+            playlistState = 'expanded';
+            
+            // Restore saved size
+            playlist.style.width = savedPlaylistSize.width + 'px';
+            playlist.style.height = savedPlaylistSize.height + 'px';
+        }
+
+        function collapsePlaylist() {
+            const playlist = document.getElementById('floatingPlaylist');
+            const expandBtn = document.getElementById('expandPlaylistBtn');
+            
+            // Save current position and size
+            const rect = playlist.getBoundingClientRect();
+            savedPlaylistPosition.top = rect.top;
+            savedPlaylistPosition.right = window.innerWidth - rect.right;
+            savedPlaylistSize.width = rect.width;
+            savedPlaylistSize.height = rect.height;
+            
+            // Hide playlist and show expand button
+            playlist.style.display = 'none';
+            expandBtn.style.display = 'block';
+            playlistState = 'collapsed';
+        }
+
+        function expandPlaylist() {
+            const playlist = document.getElementById('floatingPlaylist');
+            const expandBtn = document.getElementById('expandPlaylistBtn');
+            const toggleBtn = document.querySelector('.playlist-toggle-btn');
+            
+            // Show playlist and hide expand button
+            playlist.style.display = 'flex';
+            expandBtn.style.display = 'none';
+            
+            // Restore position and size
+            playlist.style.top = savedPlaylistPosition.top + 'px';
+            playlist.style.right = savedPlaylistPosition.right + 'px';
+            playlist.style.left = 'auto';
+            playlist.style.width = savedPlaylistSize.width + 'px';
+            playlist.style.height = savedPlaylistSize.height + 'px';
+            
+            // Reset to expanded state
+            playlist.classList.remove('minimized', 'collapsed');
+            toggleBtn.textContent = '−';
+            toggleBtn.title = 'Minimize';
+            playlistState = 'expanded';
+        }
+
+        // Waveform interaction functions
+        function startPlaybackIndicatorUpdate(deckId) {
+            stopPlaybackIndicatorUpdate(deckId); // Clear any existing interval
+            
+            playbackUpdateIntervals[deckId] = setInterval(() => {
+                const deck = decks[deckId];
+                if (deck.audio && deck.isPlaying) {
+                    const progress = deck.audio.currentTime / deck.audio.duration;
+                    updatePlaybackIndicator(deckId, progress);
+                    updateWaveformBars(deckId, progress);
+                }
+            }, 100); // Update every 100ms for smooth movement
+        }
+
+        function stopPlaybackIndicatorUpdate(deckId) {
+            if (playbackUpdateIntervals[deckId]) {
+                clearInterval(playbackUpdateIntervals[deckId]);
+                playbackUpdateIntervals[deckId] = null;
+            }
+        }
+
+        function updatePlaybackIndicator(deckId, progress) {
+            const indicator = document.getElementById(`indicator${deckId}`);
+            const waveform = document.getElementById(`waveform${deckId}`);
+            
+            if (indicator && waveform) {
+                const waveformWidth = waveform.offsetWidth;
+                const position = progress * waveformWidth;
+                indicator.style.left = `${Math.max(0, Math.min(position, waveformWidth - 2))}px`;
+            }
+        }
+
+        function updateWaveformBars(deckId, progress) {
+            const waveformEl = document.getElementById(`waveform${deckId}`);
+            const bars = waveformEl.querySelectorAll('.waveform-bar');
+            const totalBars = bars.length;
+            const playedBars = Math.floor(progress * totalBars);
+            
+            bars.forEach((bar, i) => {
+                if (i < playedBars) {
+                    bar.classList.add('played');
+                } else {
+                    bar.classList.remove('played');
+                }
+            });
+        }
+
+        function seekToPosition(event, deckId) {
+            // Prevent seeking when dragging indicator
+            if (indicatorDragging) return;
+            
+            const deck = decks[deckId];
+            if (!deck.audio) return;
+            
+            const waveform = event.currentTarget;
+            const rect = waveform.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            const progress = clickX / rect.width;
+            
+            // Seek to the clicked position
+            deck.audio.currentTime = progress * deck.audio.duration;
+            updatePlaybackIndicator(deckId, progress);
+            updateWaveformBars(deckId, progress);
+        }
+
+        function startIndicatorDrag(event, deckId) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            indicatorDragging = { deckId, startX: event.clientX };
+            
+            document.addEventListener('mousemove', handleIndicatorDrag);
+            document.addEventListener('mouseup', stopIndicatorDrag);
+        }
+
+        function handleIndicatorDrag(event) {
+            if (!indicatorDragging) return;
+            
+            const { deckId } = indicatorDragging;
+            const deck = decks[deckId];
+            if (!deck.audio) return;
+            
+            const waveform = document.getElementById(`waveform${deckId}`);
+            const rect = waveform.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const progress = Math.max(0, Math.min(1, mouseX / rect.width));
+            
+            // Update audio position
+            deck.audio.currentTime = progress * deck.audio.duration;
+            updatePlaybackIndicator(deckId, progress);
+            updateWaveformBars(deckId, progress);
+        }
+
+        function stopIndicatorDrag() {
+            indicatorDragging = null;
+            document.removeEventListener('mousemove', handleIndicatorDrag);
+            document.removeEventListener('mouseup', stopIndicatorDrag);
+        }
+
+        function updatePlaylistHighlighting() {
+            // Clear all current highlighting
+            document.querySelectorAll('.playlist-item').forEach(item => {
+                item.classList.remove('currently-playing');
+            });
+            
+            // Highlight currently playing tracks
+            ['A', 'B'].forEach(deckId => {
+                const deck = decks[deckId];
+                if (deck.isPlaying && deck.currentTrack) {
+                    const playlistItems = document.querySelectorAll('.playlist-item');
+                    playlistItems.forEach(item => {
+                        const trackName = item.querySelector('span').textContent;
+                        if (trackName === deck.currentTrack.name) {
+                            item.classList.add('currently-playing');
+                        }
+                    });
+                }
+            });
+        }
+
+        // Audio Settings Functions
+        function openAudioSettings() {
+            const modal = document.getElementById('audioSettingsModal');
+            modal.style.display = 'flex';
+            
+            // Try to enumerate audio devices
+            if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+                navigator.mediaDevices.enumerateDevices()
+                    .then(devices => {
+                        const audioOutputs = devices.filter(device => device.kind === 'audiooutput');
+                        const select = document.getElementById('audioOutputSelect');
+                        
+                        // Clear existing options except default
+                        select.innerHTML = '<option value="default">Default System Output</option>';
+                        
+                        // Add detected devices
+                        audioOutputs.forEach(device => {
+                            const option = document.createElement('option');
+                            option.value = device.deviceId;
+                            option.textContent = device.label || `Audio Device ${device.deviceId.slice(0, 8)}`;
+                            select.appendChild(option);
+                        });
+                    })
+                    .catch(err => {
+                        console.log('Could not enumerate devices:', err);
+                    });
+            }
+        }
+
+        function closeAudioSettings() {
+            const modal = document.getElementById('audioSettingsModal');
+            modal.style.display = 'none';
+        }
+
+        function changeAudioOutput() {
+            const select = document.getElementById('audioOutputSelect');
+            const deviceId = select.value;
+            
+            // Note: setSinkId is not widely supported yet
+            // This is a demonstration of the intended functionality
+            if (deviceId !== 'default') {
+                ['A', 'B'].forEach(deckId => {
+                    const deck = decks[deckId];
+                    if (deck.audio && deck.audio.setSinkId) {
+                        deck.audio.setSinkId(deviceId)
+                            .then(() => {
+                                console.log(`Audio output changed for Deck ${deckId}`);
+                            })
+                            .catch(err => {
+                                console.log(`Could not change audio output for Deck ${deckId}:`, err);
+                            });
+                    }
+                });
+            }
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', (event) => {
+            const modal = document.getElementById('audioSettingsModal');
+            if (event.target === modal) {
+                closeAudioSettings();
+            }
+        });
+
+        // Soundpad functionality
+        let soundpads = Array(10).fill(null); // 10 soundpad slots
+        let soundpadAudios = Array(10).fill(null); // Audio objects for each soundpad
+        let selectedSoundpadIndex = null;
+
+        function triggerSoundpad(padNum) {
+            const padIndex = padNum - 1;
+            const soundpad = soundpads[padIndex];
+            
+            if (!soundpad) {
+                // Empty pad - select it for loading
+                selectSoundpad(padNum);
+                return;
+            }
+            
+            // Play the sound
+            const audio = soundpadAudios[padIndex];
+            if (audio) {
+                // Stop and restart the sound
+                audio.currentTime = 0;
+                audio.play().catch(e => console.log('Soundpad playback error:', e));
+                
+                // Visual feedback
+                const pad = document.getElementById(`soundpad${padNum}`);
+                pad.classList.add('active');
+                setTimeout(() => {
+                    pad.classList.remove('active');
+                }, 200);
+            }
+        }
+
+        function selectSoundpad(padNum) {
+            // Clear previous selection
+            document.querySelectorAll('.soundpad').forEach(pad => {
+                pad.classList.remove('selected');
+            });
+            
+            // Select new pad
+            selectedSoundpadIndex = padNum - 1;
+            const pad = document.getElementById(`soundpad${padNum}`);
+            pad.classList.add('selected');
+            
+            // Show soundpad controls
+            const controls = document.querySelector('.soundpad-controls');
+            controls.classList.add('show');
+        }
+
+        function showSoundpadMenu(event, padNum) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            selectedSoundpadIndex = padNum - 1;
+            
+            const menu = document.getElementById('soundpadMenu');
+            menu.style.display = 'block';
+            menu.style.left = event.pageX + 'px';
+            menu.style.top = event.pageY + 'px';
+            
+            // Update menu buttons based on pad state
+            const soundpad = soundpads[selectedSoundpadIndex];
+            const removeBtn = menu.children[1];
+            const renameBtn = menu.children[2];
+            
+            if (soundpad) {
+                removeBtn.style.display = 'block';
+                renameBtn.style.display = 'block';
+            } else {
+                removeBtn.style.display = 'none';
+                renameBtn.style.display = 'none';
+            }
+        }
+
+        function closeSoundpadMenu() {
+            const menu = document.getElementById('soundpadMenu');
+            menu.style.display = 'none';
+        }
+
+        function loadSoundToSelectedPad() {
+            closeSoundpadMenu();
+            
+            if (selectedSoundpadIndex === null) {
+                // No pad selected, select first empty pad
+                for (let i = 0; i < 10; i++) {
+                    if (!soundpads[i]) {
+                        selectedSoundpadIndex = i;
+                        selectSoundpad(i + 1);
+                        break;
+                    }
+                }
+            }
+            
+            if (selectedSoundpadIndex !== null) {
+                document.getElementById('soundpadFileInput').click();
+            }
+        }
+
+        function handleSoundpadUpload(event) {
+            const file = event.target.files[0];
+            if (!file || selectedSoundpadIndex === null) return;
+            
+            if (file.type.startsWith('audio/')) {
+                const defaultName = file.name.replace(/\.[^/.]+$/, "");
+                
+                // Prompt user for custom title
+                const customTitle = prompt('Enter a title for this sound clip:', defaultName);
+                if (!customTitle || !customTitle.trim()) {
+                    selectedSoundpadIndex = null;
+                    event.target.value = '';
+                    return;
+                }
+                
+                const soundName = customTitle.trim();
+                const soundUrl = URL.createObjectURL(file);
+                
+                // Create audio object to check duration
+                const audio = new Audio(soundUrl);
+                audio.preload = 'metadata';
+                audio.volume = 1.0;
+                
+                // Check duration when metadata loads
+                audio.addEventListener('loadedmetadata', () => {
+                    if (audio.duration > 20) {
+                        alert('Audio file is too long! Soundpads can only contain audio files up to 20 seconds long.');
+                        URL.revokeObjectURL(soundUrl);
+                        selectedSoundpadIndex = null;
+                        event.target.value = '';
+                        return;
+                    }
+                    
+                    // Store soundpad data
+                    soundpads[selectedSoundpadIndex] = {
+                        name: soundName,
+                        file: file,
+                        url: soundUrl,
+                        duration: audio.duration
+                    };
+                    soundpadAudios[selectedSoundpadIndex] = audio;
+                    
+                    // Update pad display
+                    const pad = document.getElementById(`soundpad${selectedSoundpadIndex + 1}`);
+                    pad.classList.remove('empty', 'selected');
+                    pad.classList.add('loaded');
+                    pad.querySelector('span').textContent = soundName.substring(0, 8).toUpperCase();
+                    
+                    selectedSoundpadIndex = null;
+                });
+                
+                // Handle load error
+                audio.addEventListener('error', () => {
+                    alert('Error loading audio file. Please try a different file.');
+                    URL.revokeObjectURL(soundUrl);
+                    selectedSoundpadIndex = null;
+                });
+            }
+            
+            // Clear file input
+            event.target.value = '';
+        }
+
+        function removeSoundFromPad() {
+            closeSoundpadMenu();
+            
+            if (selectedSoundpadIndex === null) return;
+            
+            const soundpad = soundpads[selectedSoundpadIndex];
+            if (soundpad) {
+                // Clean up audio object
+                const audio = soundpadAudios[selectedSoundpadIndex];
+                if (audio) {
+                    audio.pause();
+                    audio.src = '';
+                }
+                
+                // Clean up URL
+                URL.revokeObjectURL(soundpad.url);
+                
+                // Clear data
+                soundpads[selectedSoundpadIndex] = null;
+                soundpadAudios[selectedSoundpadIndex] = null;
+                
+                // Update pad display
+                const pad = document.getElementById(`soundpad${selectedSoundpadIndex + 1}`);
+                pad.classList.remove('loaded', 'selected');
+                pad.classList.add('empty');
+                pad.querySelector('span').textContent = 'EMPTY';
+            }
+            
+            selectedSoundpadIndex = null;
+        }
+
+        function renameSoundpad() {
+            closeSoundpadMenu();
+            
+            if (selectedSoundpadIndex === null) return;
+            
+            const soundpad = soundpads[selectedSoundpadIndex];
+            if (soundpad) {
+                const newName = prompt('Enter new name for soundpad:', soundpad.name);
+                if (newName && newName.trim()) {
+                    soundpad.name = newName.trim();
+                    const pad = document.getElementById(`soundpad${selectedSoundpadIndex + 1}`);
+                    pad.querySelector('span').textContent = newName.substring(0, 8).toUpperCase();
+                }
+            }
+            
+            selectedSoundpadIndex = null;
+        }
+
+        function stopAllSoundpads() {
+            // Stop all currently playing soundpad audios
+            soundpadAudios.forEach((audio, index) => {
+                if (audio) {
+                    audio.pause();
+                    audio.currentTime = 0;
+                    
+                    // Remove active visual state
+                    const pad = document.getElementById(`soundpad${index + 1}`);
+                    if (pad) {
+                        pad.classList.remove('active');
+                    }
+                }
+            });
+        }
+
+        function changeSoundpadSound() {
+            // Find first selected soundpad or prompt user to select one
+            let targetIndex = null;
+            
+            // Check if any soundpad is selected
+            for (let i = 0; i < 10; i++) {
+                const pad = document.getElementById(`soundpad${i + 1}`);
+                if (pad && pad.classList.contains('selected')) {
+                    targetIndex = i;
+                    break;
+                }
+            }
+            
+            // If no pad is selected, find first loaded pad
+            if (targetIndex === null) {
+                for (let i = 0; i < 10; i++) {
+                    if (soundpads[i]) {
+                        targetIndex = i;
+                        selectSoundpad(i + 1);
+                        break;
+                    }
+                }
+            }
+            
+            if (targetIndex === null) {
+                alert('Please select a soundpad with a loaded sound to change.');
+                return;
+            }
+            
+            if (!soundpads[targetIndex]) {
+                alert('Selected soundpad is empty. Use LOAD to add a sound first.');
+                return;
+            }
+            
+            // Set selected index and trigger file input
+            selectedSoundpadIndex = targetIndex;
+            document.getElementById('soundpadFileInput').click();
+        }
+
+        // Playlist reordering functionality
+        let draggedIndex = null;
+
+        function dragStartPlaylist(event, index) {
+            draggedIndex = index;
+            event.currentTarget.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/html', event.currentTarget.outerHTML);
+        }
+
+        function dragOverPlaylist(event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            
+            const item = event.currentTarget;
+            if (!item.classList.contains('dragging')) {
+                item.classList.add('drag-over');
+            }
+        }
+
+        function dropPlaylist(event, dropIndex) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('drag-over');
+            
+            if (draggedIndex === null || draggedIndex === dropIndex) return;
+            
+            // Reorder playlist array
+            const draggedItem = playlist.splice(draggedIndex, 1)[0];
+            playlist.splice(dropIndex, 0, draggedItem);
+            
+            // Update display
+            updatePlaylistDisplay();
+            
+            // Reset drag state
+            draggedIndex = null;
+        }
+
+        function dragEndPlaylist(event) {
+            event.currentTarget.classList.remove('dragging');
+            document.querySelectorAll('.playlist-item').forEach(item => {
+                item.classList.remove('drag-over');
+            });
+            draggedIndex = null;
+        }
+
+        // Helper function to get currently playing deck
+        function getActivePlayingDeck() {
+            if (decks.A.isPlaying && decks.B.isPlaying) {
+                // If both are playing, return the one with higher crossfader volume
+                return crossfaderValue < 50 ? 'A' : 'B';
+            } else if (decks.A.isPlaying) {
+                return 'A';
+            } else if (decks.B.isPlaying) {
+                return 'B';
+            }
+            return null; // No deck is playing
+        }
+
+        // Playlist drag and resize functionality
+        let isDragging = false;
+        let isResizing = false;
+        let dragStartX, dragStartY, resizeStartX, resizeStartY;
+        let resizeDirection = '';
+        let playlistStartX, playlistStartY, playlistStartWidth, playlistStartHeight;
+
+        function startDrag(event) {
+            if (event.target.closest('.playlist-toggle-btn')) return;
+            
+            event.preventDefault();
+            isDragging = true;
+            
+            const playlist = document.getElementById('floatingPlaylist');
+            const rect = playlist.getBoundingClientRect();
+            
+            dragStartX = event.clientX - rect.left;
+            dragStartY = event.clientY - rect.top;
+            
+            document.addEventListener('mousemove', handleDrag);
+            document.addEventListener('mouseup', stopDrag);
+        }
+
+        function handleDrag(event) {
+            if (!isDragging) return;
+            
+            const playlist = document.getElementById('floatingPlaylist');
+            const newX = event.clientX - dragStartX;
+            const newY = event.clientY - dragStartY;
+            
+            // Keep playlist within window bounds
+            const maxX = window.innerWidth - playlist.offsetWidth;
+            const maxY = window.innerHeight - playlist.offsetHeight;
+            
+            playlist.style.left = Math.max(0, Math.min(newX, maxX)) + 'px';
+            playlist.style.top = Math.max(0, Math.min(newY, maxY)) + 'px';
+            playlist.style.right = 'auto';
+        }
+
+        function stopDrag() {
+            isDragging = false;
+            document.removeEventListener('mousemove', handleDrag);
+            document.removeEventListener('mouseup', stopDrag);
+        }
+
+        function startResize(event, direction) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            isResizing = true;
+            resizeDirection = direction;
+            
+            const playlist = document.getElementById('floatingPlaylist');
+            const rect = playlist.getBoundingClientRect();
+            
+            resizeStartX = event.clientX;
+            resizeStartY = event.clientY;
+            playlistStartX = rect.left;
+            playlistStartY = rect.top;
+            playlistStartWidth = rect.width;
+            playlistStartHeight = rect.height;
+            
+            document.addEventListener('mousemove', handleResize);
+            document.addEventListener('mouseup', stopResize);
+        }
+
+        function handleResize(event) {
+            if (!isResizing) return;
+            
+            const playlist = document.getElementById('floatingPlaylist');
+            const deltaX = event.clientX - resizeStartX;
+            const deltaY = event.clientY - resizeStartY;
+            
+            let newWidth = playlistStartWidth;
+            let newHeight = playlistStartHeight;
+            let newLeft = playlistStartX;
+            let newTop = playlistStartY;
+            
+            switch (resizeDirection) {
+                case 'right':
+                    newWidth = Math.max(280, playlistStartWidth + deltaX);
+                    break;
+                case 'left':
+                    newWidth = Math.max(280, playlistStartWidth - deltaX);
+                    newLeft = playlistStartX + deltaX;
+                    if (newWidth === 280) newLeft = playlistStartX + playlistStartWidth - 280;
+                    break;
+                case 'bottom':
+                    newHeight = Math.max(200, playlistStartHeight + deltaY);
+                    break;
+                case 'top':
+                    newHeight = Math.max(200, playlistStartHeight - deltaY);
+                    newTop = playlistStartY + deltaY;
+                    if (newHeight === 200) newTop = playlistStartY + playlistStartHeight - 200;
+                    break;
+                case 'tl':
+                    newWidth = Math.max(280, playlistStartWidth - deltaX);
+                    newHeight = Math.max(200, playlistStartHeight - deltaY);
+                    newLeft = playlistStartX + deltaX;
+                    newTop = playlistStartY + deltaY;
+                    if (newWidth === 280) newLeft = playlistStartX + playlistStartWidth - 280;
+                    if (newHeight === 200) newTop = playlistStartY + playlistStartHeight - 200;
+                    break;
+                case 'bl':
+                    newWidth = Math.max(280, playlistStartWidth - deltaX);
+                    newHeight = Math.max(200, playlistStartHeight + deltaY);
+                    newLeft = playlistStartX + deltaX;
+                    if (newWidth === 280) newLeft = playlistStartX + playlistStartWidth - 280;
+                    break;
+            }
+            
+            // Apply new dimensions and position
+            playlist.style.width = newWidth + 'px';
+            playlist.style.height = newHeight + 'px';
+            playlist.style.left = newLeft + 'px';
+            playlist.style.top = newTop + 'px';
+            playlist.style.right = 'auto';
+            playlist.style.maxHeight = 'none';
+        }
+
+        function stopResize() {
+            isResizing = false;
+            resizeDirection = '';
+            document.removeEventListener('mousemove', handleResize);
+            document.removeEventListener('mouseup', stopResize);
+        }
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', () => {
+            // Add drag leave handlers
+            document.querySelectorAll('.vinyl').forEach(vinyl => {
+                vinyl.addEventListener('dragleave', (e) => {
+                    e.currentTarget.classList.remove('drag-over');
+                });
+            });
+
+            // Initialize crossfader and faders
+            updateCrossfaderVolumes();
+            
+            // Initialize fader positions
+            setTimeout(() => {
+                updateMasterGainFaderPosition();
+                updateCrossfaderPosition();
+                updateDeckGainFaderPosition('A');
+                updateDeckGainFaderPosition('B');
+            }, 100);
+            
+            // Close soundpad menu when clicking elsewhere
+            document.addEventListener('click', (event) => {
+                const menu = document.getElementById('soundpadMenu');
+                if (menu && !menu.contains(event.target)) {
+                    closeSoundpadMenu();
+                }
+                
+                // Hide soundpad controls if clicking outside soundpads area
+                const soundpadsSection = document.querySelector('.soundpads-section');
+                if (soundpadsSection && !soundpadsSection.contains(event.target)) {
+                    document.querySelectorAll('.soundpad').forEach(pad => {
+                        pad.classList.remove('selected');
+                    });
+                    const controls = document.querySelector('.soundpad-controls');
+                    controls.classList.remove('show');
+                    selectedSoundpadIndex = null;
+                }
+            });
+        });
+
+        // Match control functions
+        function updateMatchControlsVisibility() {
+            const matchSection = document.getElementById('matchControlsSection');
+            const deckAHasTrack = decks.A.currentTrack !== null;
+            const deckBHasTrack = decks.B.currentTrack !== null;
+            
+            if (deckAHasTrack && deckBHasTrack) {
+                matchSection.style.display = 'flex';
+            } else {
+                matchSection.style.display = 'none';
+                // Reset match states when tracks are unloaded
+                beatMatchActive = false;
+                volumeMatchActive = false;
+                updateMatchButtonStates();
+            }
+        }
+
+        function toggleBeatMatch() {
+            beatMatchActive = !beatMatchActive;
+            updateMatchButtonStates();
+            
+            if (beatMatchActive) {
+                performBeatMatch();
+            }
+        }
+
+        function toggleVolumeMatch() {
+            volumeMatchActive = !volumeMatchActive;
+            updateMatchButtonStates();
+            
+            if (volumeMatchActive) {
+                performVolumeMatch();
+            }
+        }
+
+        function updateMatchButtonStates() {
+            const beatBtn = document.getElementById('beatMatchBtn');
+            const volumeBtn = document.getElementById('volumeMatchBtn');
+            
+            if (beatMatchActive) {
+                beatBtn.textContent = 'BEAT MATCH ACTIVE';
+                beatBtn.classList.add('active');
+            } else {
+                beatBtn.textContent = 'BEAT MATCH';
+                beatBtn.classList.remove('active');
+            }
+            
+            if (volumeMatchActive) {
+                volumeBtn.textContent = 'VOLUME MATCH ACTIVE';
+                volumeBtn.classList.add('active');
+            } else {
+                volumeBtn.textContent = 'VOLUME MATCH';
+                volumeBtn.classList.remove('active');
+            }
+        }
+
+        function performBeatMatch() {
+            const deckA = decks.A;
+            const deckB = decks.B;
+            
+            if (!deckA.currentTrack || !deckB.currentTrack) return;
+            
+            // Determine which deck is currently playing or was last active
+            let sourceDeck, targetDeck, targetDeckId;
+            
+            if (deckA.isPlaying && !deckB.isPlaying) {
+                sourceDeck = deckA;
+                targetDeck = deckB;
+                targetDeckId = 'B';
+            } else if (deckB.isPlaying && !deckA.isPlaying) {
+                sourceDeck = deckB;
+                targetDeck = deckA;
+                targetDeckId = 'A';
+            } else if (deckA.isPlaying && deckB.isPlaying) {
+                // Both playing, use last active deck as source
+                if (lastActiveDeck === 'A') {
+                    sourceDeck = deckA;
+                    targetDeck = deckB;
+                    targetDeckId = 'B';
+                } else {
+                    sourceDeck = deckB;
+                    targetDeck = deckA;
+                    targetDeckId = 'A';
+                }
+            } else {
+                // Neither playing, use last active as source
+                if (lastActiveDeck === 'A') {
+                    sourceDeck = deckA;
+                    targetDeck = deckB;
+                    targetDeckId = 'B';
+                } else {
+                    sourceDeck = deckB;
+                    targetDeck = deckA;
+                    targetDeckId = 'A';
+                }
+            }
+            
+            // Get BPM values (simulated for now)
+            const sourceBPM = sourceDeck.bpm || 120;
+            const targetBPM = targetDeck.bpm || 120;
+            
+            // Calculate tempo adjustment needed (round to whole number)
+            const tempoAdjustment = (sourceBPM / targetBPM) * 100;
+            const clampedTempo = Math.round(Math.max(50, Math.min(150, tempoAdjustment)));
+            
+            // Apply tempo adjustment
+            adjustTempo(targetDeckId, clampedTempo);
+            document.getElementById(`tempo${targetDeckId}`).value = clampedTempo;
+            
+            console.log(`Beat Match: Adjusted Deck ${targetDeckId} tempo to ${clampedTempo}% (${sourceBPM} BPM -> ${targetBPM} BPM)`);
+        }
+
+        function performVolumeMatch() {
+            const deckA = decks.A;
+            const deckB = decks.B;
+            
+            if (!deckA.currentTrack || !deckB.currentTrack) return;
+            
+            // Determine which deck is currently playing or was last active
+            let sourceDeck, targetDeck, targetDeckId;
+            
+            if (deckA.isPlaying && !deckB.isPlaying) {
+                sourceDeck = deckA;
+                targetDeck = deckB;
+                targetDeckId = 'B';
+            } else if (deckB.isPlaying && !deckA.isPlaying) {
+                sourceDeck = deckB;
+                targetDeck = deckA;
+                targetDeckId = 'A';
+            } else if (deckA.isPlaying && deckB.isPlaying) {
+                // Both playing, use last active deck as source
+                if (lastActiveDeck === 'A') {
+                    sourceDeck = deckA;
+                    targetDeck = deckB;
+                    targetDeckId = 'B';
+                } else {
+                    sourceDeck = deckB;
+                    targetDeck = deckA;
+                    targetDeckId = 'A';
+                }
+            } else {
+                // Neither playing, use last active as source
+                if (lastActiveDeck === 'A') {
+                    sourceDeck = deckA;
+                    targetDeck = deckB;
+                    targetDeckId = 'B';
+                } else {
+                    sourceDeck = deckB;
+                    targetDeck = deckA;
+                    targetDeckId = 'A';
+                }
+            }
+            
+            // Get volume levels (simulated analysis for now)
+            const sourceVolume = sourceDeck.volume || 100;
+            const targetVolume = targetDeck.volume || 100;
+            
+            // Calculate deck gain adjustment needed (round to whole number)
+            const volumeRatio = sourceVolume / targetVolume;
+            const newDeckGain = Math.round(Math.max(0, Math.min(200, targetDeck.deckGain * volumeRatio)));
+            
+            // Apply deck gain adjustment
+            adjustDeckGain(targetDeckId, newDeckGain);
+            
+            console.log(`Volume Match: Adjusted Deck ${targetDeckId} gain to ${newDeckGain}% (${sourceVolume} -> ${targetVolume})`);
+        }
+
+        function analyzeTrack(deckId) {
+            const deck = decks[deckId];
+            if (!deck.audio) return;
+            
+            // Simulated BPM detection (in a real implementation, this would use audio analysis)
+            // For demo purposes, we'll generate a random BPM between 80-180
+            deck.bpm = Math.floor(Math.random() * 100) + 80;
+            
+            // Simulated volume analysis (in a real implementation, this would analyze the audio waveform)
+            // For demo purposes, we'll generate a random volume level
+            deck.volume = Math.floor(Math.random() * 50) + 75; // 75-125 range
+            
+            // Update BPM display
+            const bpmElement = document.getElementById(`bpm${deckId}`);
+            if (bpmElement) {
+                bpmElement.textContent = deck.bpm;
+            }
+            
+            // Update volume display
+            const volumeElement = document.getElementById(`volume${deckId}`);
+            if (volumeElement) {
+                volumeElement.textContent = deck.volume + '%';
+            }
+            
+            console.log(`Track Analysis - Deck ${deckId}: BPM=${deck.bpm}, Volume=${deck.volume}%`);
+        }
+
+        // Contact Modal Functions
+        let captchaAnswer = 0;
+        
+        function openContactModal() {
+            const modal = document.getElementById('contactModal');
+            modal.style.display = 'flex';
+            generateCaptcha();
+            resetContactForm();
+        }
+
+        function closeContactModal() {
+            const modal = document.getElementById('contactModal');
+            modal.style.display = 'none';
+            resetContactForm();
+        }
+
+        function resetContactForm() {
+            document.getElementById('contactForm').reset();
+            document.getElementById('charCounter').textContent = '0/400 characters';
+            document.getElementById('sendBtn').classList.remove('show');
+            document.querySelectorAll('.form-validation-message').forEach(msg => {
+                msg.classList.remove('show');
+            });
+            document.getElementById('captchaInput').value = '';
+        }
+
+        function generateCaptcha() {
+            const num1 = Math.floor(Math.random() * 10) + 1;
+            const num2 = Math.floor(Math.random() * 10) + 1;
+            captchaAnswer = num1 + num2;
+            document.getElementById('captchaQuestion').textContent = `What is ${num1} + ${num2}?`;
+        }
+
+        function updateCharCounter() {
+            const message = document.getElementById('contactMessage');
+            const counter = document.getElementById('charCounter');
+            const length = message.value.length;
+            counter.textContent = `${length}/400 characters`;
+            
+            if (length > 350) {
+                counter.style.color = '#ff6b6b';
+            } else if (length > 300) {
+                counter.style.color = '#FFD700';
+            } else {
+                counter.style.color = '#666';
+            }
+        }
+
+        function checkCaptcha() {
+            const captchaInput = document.getElementById('captchaInput');
+            const userAnswer = parseInt(captchaInput.value);
+            
+            if (userAnswer === captchaAnswer && validateForm()) {
+                document.getElementById('sendBtn').classList.add('show');
+            } else {
+                document.getElementById('sendBtn').classList.remove('show');
+            }
+        }
+
+        function validateForm() {
+            const email = document.getElementById('contactEmail').value.trim();
+            const subject = document.getElementById('contactSubject').value.trim();
+            const message = document.getElementById('contactMessage').value.trim();
+            
+            // Clear previous errors
+            document.querySelectorAll('.form-validation-message').forEach(msg => {
+                msg.classList.remove('show');
+            });
+            
+            let isValid = true;
+            
+            // Email validation
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!email || !emailRegex.test(email)) {
+                document.getElementById('emailError').classList.add('show');
+                isValid = false;
+            }
+            
+            // Subject validation
+            if (!subject) {
+                document.getElementById('subjectError').classList.add('show');
+                isValid = false;
+            }
+            
+            // Message validation
+            if (!message) {
+                document.getElementById('messageError').classList.add('show');
+                isValid = false;
+            }
+            
+            return isValid;
+        }
+
+        function sendContactMessage() {
+            if (!validateForm()) {
+                return;
+            }
+            
+            const captchaInput = document.getElementById('captchaInput');
+            const userAnswer = parseInt(captchaInput.value);
+            
+            if (userAnswer !== captchaAnswer) {
+                document.getElementById('captchaError').classList.add('show');
+                return;
+            }
+            
+            const email = document.getElementById('contactEmail').value.trim();
+            const subject = document.getElementById('contactSubject').value.trim();
+            const message = document.getElementById('contactMessage').value.trim();
+            
+            // Create mailto link (since we can't actually send emails from frontend)
+            const mailtoLink = `mailto:soundboardph@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(`From: ${email}\n\nMessage:\n${message}`)}`;
+            
+            // Open default email client
+            window.location.href = mailtoLink;
+            
+            // Show success message and close modal
+            alert('Your default email client should open with the message ready to send. If it doesn\'t open automatically, please copy the developer email: soundboardph@gmail.com');
+            closeContactModal();
+        }
+
+        // User Manual Functions
+        function openManual() {
+            const modal = document.getElementById('manualModal');
+            modal.style.display = 'flex';
+        }
+
+        function closeManual() {
+            const modal = document.getElementById('manualModal');
+            modal.style.display = 'none';
+        }
+
+        // Close manual when clicking outside
+        document.addEventListener('click', (event) => {
+            const modal = document.getElementById('manualModal');
+            if (event.target === modal) {
+                closeManual();
+            }
+        });
+
+        // Add event listeners for form validation
+        document.addEventListener('DOMContentLoaded', () => {
+            const emailInput = document.getElementById('contactEmail');
+            const subjectInput = document.getElementById('contactSubject');
+            const messageInput = document.getElementById('contactMessage');
+            
+            if (emailInput) {
+                emailInput.addEventListener('input', checkCaptcha);
+            }
+            if (subjectInput) {
+                subjectInput.addEventListener('input', checkCaptcha);
+            }
+            if (messageInput) {
+                messageInput.addEventListener('input', checkCaptcha);
+            }
+        });
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97335d81d59d926c',t:'MTc1NTg3NjE0Mi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
