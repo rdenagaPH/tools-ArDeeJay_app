@@ -3,11 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Progressive Web DJ App</title>
-    <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
-    <script src="https://unpkg.com/aubiojs@0.1.1/build/aubio.js"></script>
-    <script src="https://unpkg.com/ml-matrix@6.10.4/lib-es6/index.js"></script>
-    <script src="https://unpkg.com/chroma-js@2.4.2/chroma.min.js"></script>
+    <title>ArDeeJay - Professional Web DJ Mixer</title>
+    <meta name="description" content="Professional web-based DJ mixing application with dual decks, crossfader, EQ controls, soundpads, and autoplay features. Mix music directly in your browser!">
+    <meta name="keywords" content="DJ, mixer, music, web app, crossfader, EQ, soundpads, autoplay, mixing">
+    <meta name="author" content="Engr. Randell M. Denaga">
+    <meta name="robots" content="index, follow">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://your-github-username.github.io/ardee-jay-dj/">
+    <meta property="og:title" content="ArDeeJay - Professional Web DJ Mixer">
+    <meta property="og:description" content="Professional web-based DJ mixing application with dual decks, crossfader, EQ controls, soundpads, and autoplay features.">
+    <meta property="og:image" content="https://your-github-username.github.io/ardee-jay-dj/preview.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://your-github-username.github.io/ardee-jay-dj/">
+    <meta property="twitter:title" content="ArDeeJay - Professional Web DJ Mixer">
+    <meta property="twitter:description" content="Professional web-based DJ mixing application with dual decks, crossfader, EQ controls, soundpads, and autoplay features.">
+    <meta property="twitter:image" content="https://your-github-username.github.io/ardee-jay-dj/preview.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzAwZmY4OCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cGF0aCBkPSJNMTIsMkExMCwxMCAwIDAsMSAyMiwxMkExMCwxMCAwIDAsMSAxMiwyMkExMCwxMCAwIDAsMSAyLDEyQTEwLDEwIDAgMCwxIDEyLDJNMTIsNEE4LDggMCAwLDAgNCwxMkE4LDggMCAwLDAgMTIsMjBBOCw4IDAgMCwwIDIwLDEyQTgsOCAwIDAsMCAxMiw0TTEyLDZBNiw2IDAgMCwxIDE4LDEyQTYsNiAwIDAsMSAxMiwxOEE2LDYgMCAwLDEgNiwxMkE2LDYgMCAwLDEgMTIsNk0xMiw4QTQsNCAwIDAsMCA4LDEyQTQsNCAwIDAsMCAxMiwxNkE0LDQgMCAwLDAgMTYsMTJBNCw0IDAgMCwwIDEyLDhNMTIsMTBBMiwyIDAgMCwxIDE0LDEyQTIsMiAwIDAsMSAxMiwxNEEyLDIgMCAwLDEgMTAsMTJBMiwyIDAgMCwxIDEyLDEwWiIvPgo8L3N2Zz4K">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ArDeeJay">
+    
+    <!-- Performance optimizations -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://unpkg.com">
     <style>
         * {
             margin: 0;
@@ -2726,18 +2754,93 @@
     </div>
 
     <script>
-        // Enter fullscreen mode when loaded
+        // Performance monitoring and error handling
+        let performanceMetrics = {
+            loadTime: 0,
+            audioLatency: 0,
+            memoryUsage: 0
+        };
+
+        // Global error handler
+        window.addEventListener('error', (event) => {
+            console.error('Application Error:', event.error);
+            // In production, you might want to send this to an error tracking service
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('Unhandled Promise Rejection:', event.reason);
+            event.preventDefault();
+        });
+
+        // Service Worker registration for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then((registration) => {
+                        console.log('SW registered: ', registration);
+                    })
+                    .catch((registrationError) => {
+                        console.log('SW registration failed: ', registrationError);
+                    });
+            });
+        }
+
+        // Initialize app when loaded
         document.addEventListener('DOMContentLoaded', () => {
-            // Request fullscreen
-            if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen().catch(err => {
-                    console.log('Fullscreen request failed:', err);
-                });
-            } else if (document.documentElement.webkitRequestFullscreen) {
-                document.documentElement.webkitRequestFullscreen();
-            } else if (document.documentElement.msRequestFullscreen) {
-                document.documentElement.msRequestFullscreen();
-            }
+            const startTime = performance.now();
+            
+            // Optional fullscreen mode (user can choose)
+            const fullscreenBtn = document.createElement('button');
+            fullscreenBtn.textContent = 'Enter Fullscreen';
+            fullscreenBtn.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 200px;
+                background: linear-gradient(145deg, #4ecdc4, #45b7aa);
+                border: 2px solid #1a1a2e;
+                border-radius: 8px;
+                padding: 8px 12px;
+                color: #1a1a2e;
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 12px;
+                z-index: 500;
+                display: none;
+            `;
+            
+            fullscreenBtn.onclick = () => {
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(err => {
+                        console.log('Fullscreen request failed:', err);
+                    });
+                } else if (document.documentElement.webkitRequestFullscreen) {
+                    document.documentElement.webkitRequestFullscreen();
+                } else if (document.documentElement.msRequestFullscreen) {
+                    document.documentElement.msRequestFullscreen();
+                }
+                fullscreenBtn.style.display = 'none';
+            };
+            
+            document.body.appendChild(fullscreenBtn);
+            
+            // Show fullscreen button after 2 seconds
+            setTimeout(() => {
+                if (!document.fullscreenElement) {
+                    fullscreenBtn.style.display = 'block';
+                }
+            }, 2000);
+            
+            // Hide fullscreen button when in fullscreen
+            document.addEventListener('fullscreenchange', () => {
+                if (document.fullscreenElement) {
+                    fullscreenBtn.style.display = 'none';
+                } else {
+                    fullscreenBtn.style.display = 'block';
+                }
+            });
+            
+            performanceMetrics.loadTime = performance.now() - startTime;
+            console.log(`App loaded in ${performanceMetrics.loadTime.toFixed(2)}ms`);
         });
 
         // Handle ESC key to exit fullscreen
@@ -3283,7 +3386,11 @@
 
         function startFaderDrag(event, faderType) {
             event.preventDefault();
+            event.stopPropagation();
             faderDragging = { type: faderType, startY: event.clientY, startX: event.clientX };
+            
+            // Add cursor style
+            document.body.style.cursor = 'grabbing';
             
             document.addEventListener('mousemove', handleFaderDrag);
             document.addEventListener('mouseup', stopFaderDrag);
@@ -3296,34 +3403,28 @@
             
             if (type === 'masterGain') {
                 const fader = document.getElementById('masterGainFader');
-                const handle = document.getElementById('masterGainHandle');
                 const rect = fader.getBoundingClientRect();
-                const mouseY = event.clientY - rect.top;
+                const mouseY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
                 const percentage = 1 - (mouseY / rect.height);
-                const clampedPercentage = Math.max(0, Math.min(1, percentage));
-                const value = Math.round(clampedPercentage * 200);
+                const value = Math.round(percentage * 200);
                 
                 adjustMasterGain(value);
             } else if (type === 'crossfader') {
                 const fader = document.getElementById('crossfaderFader');
-                const handle = document.getElementById('crossfaderHandle');
                 const rect = fader.getBoundingClientRect();
-                const mouseX = event.clientX - rect.left;
+                const mouseX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
                 const percentage = mouseX / rect.width;
-                const clampedPercentage = Math.max(0, Math.min(1, percentage));
-                const value = Math.round(clampedPercentage * 100);
+                const value = Math.round(percentage * 100);
                 
                 adjustCrossfader(value);
                 updateCrossfaderPosition();
             } else if (type === 'deckGainA' || type === 'deckGainB') {
                 const deckId = type === 'deckGainA' ? 'A' : 'B';
                 const fader = document.getElementById(`deckGainFader${deckId}`);
-                const handle = document.getElementById(`deckGainHandle${deckId}`);
                 const rect = fader.getBoundingClientRect();
-                const mouseY = event.clientY - rect.top;
+                const mouseY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
                 const percentage = 1 - (mouseY / rect.height);
-                const clampedPercentage = Math.max(0, Math.min(1, percentage));
-                const value = Math.round(clampedPercentage * 200);
+                const value = Math.round(percentage * 200);
                 
                 adjustDeckGain(deckId, value);
             }
@@ -3331,6 +3432,7 @@
 
         function stopFaderDrag() {
             faderDragging = null;
+            document.body.style.cursor = 'default';
             document.removeEventListener('mousemove', handleFaderDrag);
             document.removeEventListener('mouseup', stopFaderDrag);
         }
@@ -3374,7 +3476,10 @@
         // EQ knob handling
         function startKnobDrag(event, deckId, eqType) {
             event.preventDefault();
-            knobDragging = { deckId, eqType, startY: event.clientY };
+            event.stopPropagation();
+            knobDragging = { deckId, eqType, startY: event.clientY, lastY: event.clientY };
+            
+            document.body.style.cursor = 'grabbing';
             
             document.addEventListener('mousemove', handleKnobDrag);
             document.addEventListener('mouseup', stopKnobDrag);
@@ -3383,13 +3488,14 @@
         function handleKnobDrag(event) {
             if (!knobDragging) return;
             
-            const { deckId, eqType, startY } = knobDragging;
-            const deltaY = startY - event.clientY;
-            const sensitivity = 2;
+            const { deckId, eqType } = knobDragging;
+            const deltaY = knobDragging.lastY - event.clientY;
+            const sensitivity = 3;
             const change = deltaY / sensitivity;
             
             const deck = decks[deckId];
-            deck.eq[eqType] = Math.max(-12, Math.min(12, deck.eq[eqType] + change));
+            const oldValue = deck.eq[eqType];
+            deck.eq[eqType] = Math.max(-12, Math.min(12, oldValue + change));
             
             // Update knob visual
             const knob = document.getElementById(`${eqType}${deckId}`);
@@ -3405,22 +3511,15 @@
             // Apply real EQ filter using Web Audio API
             if (deck.audio && deck[`${eqType}Filter`]) {
                 const filter = deck[`${eqType}Filter`];
-                
-                // Apply gain changes to the appropriate filter
-                if (eqType === 'bass') {
-                    filter.gain.value = deck.eq[eqType];
-                } else if (eqType === 'mid') {
-                    filter.gain.value = deck.eq[eqType];
-                } else if (eqType === 'treble') {
-                    filter.gain.value = deck.eq[eqType];
-                }
+                filter.gain.value = deck.eq[eqType];
             }
             
-            knobDragging.startY = event.clientY;
+            knobDragging.lastY = event.clientY;
         }
 
         function stopKnobDrag() {
             knobDragging = null;
+            document.body.style.cursor = 'default';
             document.removeEventListener('mousemove', handleKnobDrag);
             document.removeEventListener('mouseup', stopKnobDrag);
         }
@@ -3753,12 +3852,14 @@
             
             playbackUpdateIntervals[deckId] = setInterval(() => {
                 const deck = decks[deckId];
-                if (deck.audio && deck.isPlaying) {
+                if (deck.audio && deck.isPlaying && deck.audio.duration) {
                     const progress = deck.audio.currentTime / deck.audio.duration;
-                    updatePlaybackIndicator(deckId, progress);
-                    updateWaveformBars(deckId, progress);
+                    if (!isNaN(progress) && isFinite(progress)) {
+                        updatePlaybackIndicator(deckId, progress);
+                        updateWaveformBars(deckId, progress);
+                    }
                 }
-            }, 100); // Update every 100ms for smooth movement
+            }, 50); // Update every 50ms for smoother movement
         }
 
         function stopPlaybackIndicatorUpdate(deckId) {
@@ -3774,8 +3875,9 @@
             
             if (indicator && waveform) {
                 const waveformWidth = waveform.offsetWidth;
-                const position = progress * waveformWidth;
+                const position = progress * (waveformWidth - 2); // Account for indicator width
                 indicator.style.left = `${Math.max(0, Math.min(position, waveformWidth - 2))}px`;
+                indicator.style.display = 'block'; // Ensure it's visible
             }
         }
 
@@ -3799,17 +3901,20 @@
             if (indicatorDragging) return;
             
             const deck = decks[deckId];
-            if (!deck.audio) return;
+            if (!deck.audio || !deck.audio.duration) return;
             
             const waveform = event.currentTarget;
             const rect = waveform.getBoundingClientRect();
-            const clickX = event.clientX - rect.left;
+            const clickX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
             const progress = clickX / rect.width;
             
             // Seek to the clicked position
-            deck.audio.currentTime = progress * deck.audio.duration;
-            updatePlaybackIndicator(deckId, progress);
-            updateWaveformBars(deckId, progress);
+            const newTime = progress * deck.audio.duration;
+            if (!isNaN(newTime) && isFinite(newTime)) {
+                deck.audio.currentTime = newTime;
+                updatePlaybackIndicator(deckId, progress);
+                updateWaveformBars(deckId, progress);
+            }
         }
 
         function startIndicatorDrag(event, deckId) {
@@ -3817,6 +3922,7 @@
             event.stopPropagation();
             
             indicatorDragging = { deckId, startX: event.clientX };
+            document.body.style.cursor = 'grabbing';
             
             document.addEventListener('mousemove', handleIndicatorDrag);
             document.addEventListener('mouseup', stopIndicatorDrag);
@@ -3827,21 +3933,25 @@
             
             const { deckId } = indicatorDragging;
             const deck = decks[deckId];
-            if (!deck.audio) return;
+            if (!deck.audio || !deck.audio.duration) return;
             
             const waveform = document.getElementById(`waveform${deckId}`);
             const rect = waveform.getBoundingClientRect();
-            const mouseX = event.clientX - rect.left;
-            const progress = Math.max(0, Math.min(1, mouseX / rect.width));
+            const mouseX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+            const progress = mouseX / rect.width;
             
             // Update audio position
-            deck.audio.currentTime = progress * deck.audio.duration;
-            updatePlaybackIndicator(deckId, progress);
-            updateWaveformBars(deckId, progress);
+            const newTime = progress * deck.audio.duration;
+            if (!isNaN(newTime) && isFinite(newTime)) {
+                deck.audio.currentTime = newTime;
+                updatePlaybackIndicator(deckId, progress);
+                updateWaveformBars(deckId, progress);
+            }
         }
 
         function stopIndicatorDrag() {
             indicatorDragging = null;
+            document.body.style.cursor = 'default';
             document.removeEventListener('mousemove', handleIndicatorDrag);
             document.removeEventListener('mouseup', stopIndicatorDrag);
         }
@@ -4379,6 +4489,75 @@
             document.removeEventListener('mouseup', stopResize);
         }
 
+        // Memory management and cleanup
+        function cleanupAudioResources() {
+            // Clean up deck audio resources
+            ['A', 'B'].forEach(deckId => {
+                const deck = decks[deckId];
+                if (deck.audio) {
+                    deck.audio.pause();
+                    deck.audio.src = '';
+                    deck.audio = null;
+                }
+                if (deck.sourceNode) {
+                    deck.sourceNode.disconnect();
+                    deck.sourceNode = null;
+                }
+                if (deck.audioContext && deck.audioContext.state !== 'closed') {
+                    deck.audioContext.close();
+                }
+            });
+            
+            // Clean up soundpad resources
+            soundpadAudios.forEach((audio, index) => {
+                if (audio) {
+                    audio.pause();
+                    audio.src = '';
+                    soundpadAudios[index] = null;
+                }
+            });
+            
+            // Clean up playlist URLs
+            playlist.forEach(track => {
+                if (track.url) {
+                    URL.revokeObjectURL(track.url);
+                }
+            });
+            
+            // Clean up soundpad URLs
+            soundpads.forEach(soundpad => {
+                if (soundpad && soundpad.url) {
+                    URL.revokeObjectURL(soundpad.url);
+                }
+            });
+        }
+
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            cleanupAudioResources();
+        });
+
+        // Handle visibility change (tab switching)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // Pause audio when tab is hidden to save resources
+                ['A', 'B'].forEach(deckId => {
+                    const deck = decks[deckId];
+                    if (deck.isPlaying && deck.audioContext) {
+                        deck.audioContext.suspend();
+                    }
+                });
+            } else {
+                // Resume audio when tab becomes visible
+                ['A', 'B'].forEach(deckId => {
+                    const deck = decks[deckId];
+                    if (deck.isPlaying && deck.audioContext && deck.audioContext.state === 'suspended') {
+                        deck.audioContext.resume();
+                    }
+                });
+            }
+        });
+
         // Initialize the app
         document.addEventListener('DOMContentLoaded', () => {
             // Add drag leave handlers
@@ -4399,6 +4578,40 @@
                 updateDeckGainFaderPosition('B');
             }, 100);
             
+            // Add click handlers for faders (for direct positioning)
+            document.getElementById('masterGainFader').addEventListener('click', (event) => {
+                if (faderDragging) return;
+                const fader = event.currentTarget;
+                const rect = fader.getBoundingClientRect();
+                const mouseY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+                const percentage = 1 - (mouseY / rect.height);
+                const value = Math.round(percentage * 200);
+                adjustMasterGain(value);
+            });
+            
+            document.getElementById('crossfaderFader').addEventListener('click', (event) => {
+                if (faderDragging) return;
+                const fader = event.currentTarget;
+                const rect = fader.getBoundingClientRect();
+                const mouseX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+                const percentage = mouseX / rect.width;
+                const value = Math.round(percentage * 100);
+                adjustCrossfader(value);
+                updateCrossfaderPosition();
+            });
+            
+            ['A', 'B'].forEach(deckId => {
+                document.getElementById(`deckGainFader${deckId}`).addEventListener('click', (event) => {
+                    if (faderDragging) return;
+                    const fader = event.currentTarget;
+                    const rect = fader.getBoundingClientRect();
+                    const mouseY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+                    const percentage = 1 - (mouseY / rect.height);
+                    const value = Math.round(percentage * 200);
+                    adjustDeckGain(deckId, value);
+                });
+            });
+            
             // Close soundpad menu when clicking elsewhere
             document.addEventListener('click', (event) => {
                 const menu = document.getElementById('soundpadMenu');
@@ -4417,6 +4630,19 @@
                     selectedSoundpadIndex = null;
                 }
             });
+
+            // Monitor memory usage (if available)
+            if ('memory' in performance) {
+                setInterval(() => {
+                    const memInfo = performance.memory;
+                    performanceMetrics.memoryUsage = memInfo.usedJSHeapSize / 1048576; // Convert to MB
+                    
+                    // Log warning if memory usage is high
+                    if (performanceMetrics.memoryUsage > 100) {
+                        console.warn(`High memory usage: ${performanceMetrics.memoryUsage.toFixed(2)}MB`);
+                    }
+                }, 30000); // Check every 30 seconds
+            }
         });
 
         // Match control functions
@@ -4770,5 +4996,5 @@
             }
         });
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'97335d81d59d926c',t:'MTc1NTg3NjE0Mi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9733d4b1c354fee5',t:'MTc1NTg4MTAyNC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
